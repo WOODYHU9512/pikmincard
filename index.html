@@ -19,7 +19,8 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+        // 注意：這裡多引入了 deleteObject
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDWu48irJa30tNSVcczZk4LDB7gyeHEChs",
@@ -137,6 +138,19 @@
                 setIsModalOpen(true);
             };
 
+            // --- 核心修改：刪除舊圖片的輔助函式 ---
+            const deleteOldImage = async (url) => {
+                if (!url) return;
+                try {
+                    // Firebase 很聰明，可以直接用 downloadURL 來建立 reference 並刪除
+                    const imageRef = ref(storage, url);
+                    await deleteObject(imageRef);
+                    console.log("舊圖片已成功刪除");
+                } catch (error) {
+                    console.log("刪除舊圖片時忽略錯誤 (可能檔案原本就不存在):", error);
+                }
+            };
+
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!user) return;
@@ -144,13 +158,25 @@
                 const timestamp = new Date().toISOString();
                 let finalImageUrl = formData.imageUrl;
                 try {
+                    // 如果有上傳新檔案
                     if (selectedFile) {
+                        // 1. 如果是「編輯模式」且「原本有舊圖」，先刪除舊圖
+                        if (editingItem && editingItem.imageUrl) {
+                            await deleteOldImage(editingItem.imageUrl);
+                        }
+
+                        // 2. 上傳新圖
                         const fileExt = selectedFile.name.split('.').pop();
                         const fileName = `${Date.now()}.${fileExt}`;
                         const storageRef = ref(storage, `images/${fileName}`);
                         await uploadBytes(storageRef, selectedFile);
                         finalImageUrl = await getDownloadURL(storageRef);
+                    } 
+                    // 如果沒有上傳新檔案，但是使用者按了「移除」按鈕 (formData.imageUrl 變空的，但原本有圖)
+                    else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
+                        await deleteOldImage(editingItem.imageUrl);
                     }
+
                     const newItem = { ...formData, imageUrl: finalImageUrl, lastUpdated: timestamp };
                     if (editingItem) {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', editingItem.id), newItem, { merge: true });
@@ -164,7 +190,19 @@
 
             const confirmDelete = async () => {
                 if (deleteId && user) {
-                    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); setDeleteId(null); } catch (error) { console.error("Delete error:", error); }
+                    try { 
+                        // 1. 先找出要刪除的那一筆資料
+                        const itemToDelete = postcards.find(p => p.id === deleteId);
+                        
+                        // 2. 如果那筆資料有圖片，先刪除 storage 裡的圖片
+                        if (itemToDelete && itemToDelete.imageUrl) {
+                            await deleteOldImage(itemToDelete.imageUrl);
+                        }
+
+                        // 3. 再刪除資料庫裡的文字紀錄
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
+                        setDeleteId(null); 
+                    } catch (error) { console.error("Delete error:", error); }
                 }
             };
 
