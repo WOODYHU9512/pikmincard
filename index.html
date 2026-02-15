@@ -87,29 +87,23 @@
             const csvInputRef = useRef(null);
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
 
-            // 1. 監聽登入狀態：只負責設定 user 和 isAdmin
             useEffect(() => {
                 onAuthStateChanged(auth, (u) => {
                     if (u) {
                         setUser(u);
                         setIsAdmin(u.email === ADMIN_EMAIL);
                     } else {
-                        // 如果沒登入，user 就是 null，isAdmin 就是 false
-                        // 我們這裡不強制 signInAnonymously，讓沒登入的人也能看
                         setUser(null);
                         setIsAdmin(false);
                     }
                 });
             }, []);
 
-            // 2. 監聽資料庫：移除了 if (!user) return，讓任何人都能觸發讀取
             useEffect(() => {
-                // 不管有沒有 user，直接去抓資料
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     
-                    // 只有當「已經登入」且是「管理員」且「資料庫是空的」時，才執行種子資料初始化
                     if (snapshot.empty && !hasInitializedSeeds.current && isAdmin) {
                         hasInitializedSeeds.current = true;
                         importSeedData();
@@ -120,11 +114,10 @@
                     }
                 }, (error) => { 
                     console.error("Data sync error:", error); 
-                    // 如果規則設錯導致不能讀，這裡會報錯，但因為我們規則設 allow read: if true，所以不會有事
                     setLoading(false); 
                 });
                 return () => unsubscribe();
-            }, [isAdmin]); // 依賴 isAdmin，確保登入後如果資料是空的會觸發初始化
+            }, [isAdmin]);
 
             const handleAdminLogin = async () => {
                 if (isAdmin) {
@@ -144,7 +137,7 @@
             };
 
             const importSeedData = async () => {
-                if (!isAdmin) return; // 雙重保險
+                if (!isAdmin) return;
                 setIsImporting(true);
                 try {
                     const promises = INITIAL_SEEDS.map(seed => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', seed.id), seed, { merge: true }));
@@ -158,7 +151,7 @@
                 const reader = new FileReader();
                 reader.onload = (event) => { setFormData(prev => ({ ...prev, imageUrl: event.target.result })); };
                 reader.readAsDataURL(file);
-                setSelectedFileState(file); // 修正變數名稱
+                setSelectedFileState(file);
             };
             const handleRemoveImage = () => { setFormData(prev => ({ ...prev, imageUrl: "" })); setSelectedFileState(null); };
 
@@ -185,7 +178,7 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!isAdmin) return; // 只有管理員能送出
+                if (!isAdmin) return;
                 setIsUploading(true);
                 const timestamp = new Date().toISOString();
                 let finalImageUrl = formData.imageUrl;
@@ -358,7 +351,17 @@
                                                             <>
                                                                 {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /></div>)}
                                                                 <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
-                                                                    <div className="flex items-center gap-2 mb-1"><span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : item.type === '種花' ? 'bg-pink-100 text-pink-700' : 'bg-amber-100 text-amber-800'}`}>{item.type}</span><span className="text-xs text-slate-400">{item.category}</span></div>
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                            item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                            item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
+                                                                            item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' :
+                                                                            'bg-amber-100 text-amber-800'
+                                                                        }`}>
+                                                                            {item.type}
+                                                                        </span>
+                                                                        <span className="text-xs text-slate-400">{item.category}</span>
+                                                                    </div>
                                                                     <h3 className="text-lg font-bold text-slate-800">{item.name}</h3>
                                                                 </div>
                                                             </>
@@ -418,7 +421,15 @@
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
-                                                <div><label className="text-xs font-bold text-slate-500">類型</label><select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}><option value="蘑菇">蘑菇</option><option value="種花">種花</option><option value="都有">都有</option></select></div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500">類型</label>
+                                                    <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                        <option value="蘑菇">蘑菇</option>
+                                                        <option value="種花">種花</option>
+                                                        <option value="都有">都有</option>
+                                                        <option value="隱藏">隱藏</option>
+                                                    </select>
+                                                </div>
                                             </div>
                                             <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
                                             <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
