@@ -83,7 +83,7 @@
             const [copyFeedback, setCopyFeedback] = useState(null);
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
-            const [selectedIds, setSelectedIds] = useState(new Set()); // 追蹤選取狀態
+            const [selectedIds, setSelectedIds] = useState(new Set());
 
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
@@ -97,7 +97,7 @@
                     } else {
                         setUser(null);
                         setIsAdmin(false);
-                        setSelectedIds(new Set()); // 登出時清空
+                        setSelectedIds(new Set());
                     }
                 });
             }, []);
@@ -122,11 +122,13 @@
                 return () => unsubscribe();
             }, [isAdmin]);
 
-            // 切換單一項目勾選
             const toggleSelection = (id) => {
                 const newSelected = new Set(selectedIds);
-                if (newSelected.has(id)) newSelected.delete(id);
-                else newSelected.add(id);
+                if (newSelected.has(id)) {
+                    newSelected.delete(id);
+                } else {
+                    newSelected.add(id);
+                }
                 setSelectedIds(newSelected);
             };
 
@@ -216,54 +218,39 @@
                 } catch (error) { console.error("Save error:", error); alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
-            // 執行刪除的通用函式 (支援單筆、多筆、整類)
-            const executeDelete = async (idsToDelete) => {
-                if (idsToDelete.length === 0) return;
+            const handleBatchDelete = async () => {
+                if (selectedIds.size === 0) return;
+                if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
+
                 setIsUploading(true);
                 try {
-                    const batch = writeBatch(db);
-                    // Firestore batch 最多 500 筆，這裡簡單處理，若量大建議分批，但一般使用足夠
-                    for (const id of idsToDelete) {
+                    const promises = Array.from(selectedIds).map(async (id) => {
                         const itemToDelete = postcards.find(p => p.id === id);
                         if (itemToDelete) {
                             if (itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
-                            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id);
-                            batch.delete(docRef);
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
                         }
-                    }
-                    await batch.commit();
-                    alert("刪除成功！");
-                    setSelectedIds(new Set()); // 若是勾選刪除，清空選取
+                    });
+                    
+                    await Promise.all(promises);
+                    setSelectedIds(new Set());
+                    alert("批量刪除完成！");
                 } catch (error) {
-                    console.error("Delete error:", error);
+                    console.error("Batch delete error:", error);
                     alert("刪除失敗: " + error.message);
                 } finally {
                     setIsUploading(false);
                 }
             };
 
-            // 處理勾選刪除
-            const handleBatchDelete = () => {
-                if (selectedIds.size === 0) return;
-                if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
-                executeDelete(Array.from(selectedIds));
-            };
-
-            // 處理單筆刪除
-            const confirmDelete = () => {
+            const confirmDelete = async () => {
                 if (deleteId && isAdmin) {
-                    executeDelete([deleteId]);
-                    setDeleteId(null);
-                }
-            };
-
-            // 處理整類刪除 (groupKey 可能為 子類別名稱 或 純點類型)
-            const handleGroupDelete = (groupKey, itemsInGroup) => {
-                if (!isAdmin) return;
-                const confirmMsg = `警告：您確定要刪除「${groupKey}」類別下的所有 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`;
-                if (confirm(confirmMsg)) {
-                    const idsToDelete = itemsInGroup.map(item => item.id);
-                    executeDelete(idsToDelete);
+                    try { 
+                        const itemToDelete = postcards.find(p => p.id === deleteId);
+                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
+                        setDeleteId(null); 
+                    } catch (error) { console.error("Delete error:", error); }
                 }
             };
 
@@ -295,7 +282,6 @@
                     setIsImporting(true);
                     try {
                         const promises = dataRows.map(row => {
-                            // 聰明正則切割：只切引號外的逗號
                             const rawCols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
                             const cols = rawCols.map(col => {
                                 let c = col.trim();
@@ -336,10 +322,19 @@
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
+                
+                // ★★★ 修正這裡：更全面的搜尋邏輯 ★★★
+                const s = searchTerm.toLowerCase();
+                const matchesSearch = 
+                    (item.name || "").toLowerCase().includes(s) || 
+                    (item.location || "").toLowerCase().includes(s) || 
+                    (item.type || "").toLowerCase().includes(s) ||
+                    (item.series || "").toLowerCase().includes(s);
+
                 if (mainTab === '明信片') {
-                    return (activeCategory === "全部" || item.category === activeCategory) && ((item.name || "").toLowerCase().includes(searchTerm.toLowerCase()) || (item.series || "").toLowerCase().includes(searchTerm.toLowerCase()));
+                    return (activeCategory === "全部" || item.category === activeCategory) && matchesSearch;
                 } else {
-                    return (item.type || "").toLowerCase().includes(searchTerm.toLowerCase());
+                    return matchesSearch;
                 }
             });
 
@@ -367,9 +362,9 @@
                                 
                                 {isAdmin && (
                                     <>
-                                        {/* 勾選批量刪除按鈕 */}
+                                        {/* ★ 新增：批量刪除按鈕 (只有在有選取時顯示) */}
                                         {selectedIds.size > 0 && (
-                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse shadow-md">
+                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
                                                 <Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})
                                             </button>
                                         )}
@@ -401,21 +396,13 @@
                                 <div className="space-y-8">
                                     {Object.entries(groupedPostcards).map(([groupKey, items]) => (
                                         <section key={groupKey}>
-                                            <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
-                                                <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
-                                                {/* ★ 新增：整類刪除按鈕 */}
-                                                {isAdmin && (
-                                                    <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors" title={`刪除所有「${groupKey}」資料`}>
-                                                        <Icon path={ICONS.Trash2} />
-                                                    </button>
-                                                )}
-                                            </div>
+                                            <h2 className="text-xl font-bold text-slate-700 mb-4 pl-3 border-l-4 border-emerald-500">{groupKey}</h2>
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {items.map(item => (
                                                     <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
                                                         {isAdmin && (
                                                             <>
-                                                                {/* 勾選框 */}
+                                                                {/* ★ 新增：左上角勾選框 (只有管理員看得到) */}
                                                                 <div className="absolute top-4 left-4 z-10">
                                                                     <input 
                                                                         type="checkbox" 
@@ -424,7 +411,7 @@
                                                                         className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm"
                                                                     />
                                                                 </div>
-                                                                {/* 編輯刪除按鈕 */}
+
                                                                 <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                                                     <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
@@ -456,6 +443,17 @@
                                                             <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
                                                                 <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
                                                                 <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                
+                                                                {/* ★★★ 這裡新增了一鍵複製功能 ★★★ */}
+                                                                <div className="border-t border-slate-200/50 pt-2 mt-1">
+                                                                    <button 
+                                                                        onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} 
+                                                                        className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors"
+                                                                    >
+                                                                        <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
+                                                                    </button>
+                                                                </div>
+
                                                             </div>
                                                             <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
                                                         </div>
