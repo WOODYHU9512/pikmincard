@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標圖鑑</title>
+    <title>Pikmin 座標圖鑑 (新版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -15,19 +15,20 @@
     <script type="text/babel" data-type="module">
         const { useState, useEffect, useRef, Fragment } = React;
 
-        // --- Firebase 設定 (從 CDN 引入) ---
+        // --- Firebase 設定 (CDN 版本) ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
+        // ★★★ 這裡是你的新專案設定 (pikcardrecord) ★★★
         const firebaseConfig = {
-            apiKey: "AIzaSyDWu48irJa30tNSVcczZk4LDB7gyeHEChs",
-            authDomain: "pikmin-map-f04c8.firebaseapp.com",
-            projectId: "pikmin-map-f04c8",
-            storageBucket: "pikmin-map-f04c8.firebasestorage.app",
-            messagingSenderId: "978390322128",
-            appId: "1:978390322128:web:cacb4c337ea921e37fc7d5"
+            apiKey: "AIzaSyDEsqE2MtAJnMGm17kwjnftuCcieV0z6Bc",
+            authDomain: "pikcardrecord.firebaseapp.com",
+            projectId: "pikcardrecord",
+            storageBucket: "pikcardrecord.firebasestorage.app",
+            messagingSenderId: "441551391616",
+            appId: "1:441551391616:web:8f6fe2c7f46bb6de038f65"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -36,7 +37,11 @@
         const storage = getStorage(app);
         const appId = 'pikmin-public-v1';
 
-        // --- 內建圖示 (SVG) ---
+        // ★★★ 請設定你的管理員 Email (要去 Firebase Authentication 建立這個使用者) ★★★
+        // 只有用這個 Email 登入的人，才會有編輯權限
+        const ADMIN_EMAIL = "admin@pikmin.map"; 
+
+        // --- 圖示 ---
         const Icon = ({ path }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 {path}
@@ -46,7 +51,7 @@
         const ICONS = {
             Leaf: <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />,
             Download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3" />,
-            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />, // 用於匯入按鈕
+            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
             Plus: <path d="M5 12h14 M12 5v14" />,
             Search: <Fragment><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></Fragment>,
             Edit2: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
@@ -57,8 +62,8 @@
             ExternalLink: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14 21 3" />,
             AlertTriangle: <Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" x2="12" y1="9" y2="13" /><line x1="12" x2="12.01" y1="17" y2="17" /></Fragment>,
             X: <path d="M18 6 6 18 M6 6l12 12" />,
-            UploadCloud: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
-            Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>
+            Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
+            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         };
 
         const INITIAL_SEEDS = [
@@ -68,6 +73,7 @@
 
         const App = () => {
             const [user, setUser] = useState(null);
+            const [isAdmin, setIsAdmin] = useState(false);
             const [postcards, setPostcards] = useState([]);
             const [loading, setLoading] = useState(true);
             const hasInitializedSeeds = useRef(false);
@@ -81,21 +87,30 @@
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
             const fileInputRef = useRef(null);
-            // 新增：CSV 匯入用的隱藏 input ref
             const csvInputRef = useRef(null);
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
 
+            // 監聽登入狀態
             useEffect(() => {
-                signInAnonymously(auth).catch((error) => console.error("Auth error:", error));
-                return onAuthStateChanged(auth, (u) => setUser(u));
+                onAuthStateChanged(auth, (u) => {
+                    if (u) {
+                        setUser(u);
+                        setIsAdmin(u.email === ADMIN_EMAIL);
+                    } else {
+                        // 如果沒登入，就用匿名登入 (只能讀取)
+                        signInAnonymously(auth).catch((error) => console.error("Auth error:", error));
+                    }
+                });
             }, []);
 
+            // 監聽資料庫
             useEffect(() => {
                 if (!user) return;
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    if (snapshot.empty && !hasInitializedSeeds.current) {
+                    // 只有管理員可以執行初始化種子資料
+                    if (snapshot.empty && !hasInitializedSeeds.current && isAdmin) {
                         hasInitializedSeeds.current = true;
                         importSeedData();
                     } else {
@@ -105,10 +120,27 @@
                     }
                 }, (error) => { console.error("Data sync error:", error); setLoading(false); });
                 return () => unsubscribe();
-            }, [user]);
+            }, [user, isAdmin]);
+
+            const handleAdminLogin = async () => {
+                if (isAdmin) {
+                    if(confirm("確定要登出管理員嗎？")) await signOut(auth);
+                } else {
+                    const email = prompt("請輸入管理員 Email:");
+                    if (!email) return;
+                    const password = prompt("請輸入密碼:");
+                    if (!password) return;
+                    try {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        alert("登入成功！編輯模式已開啟。");
+                    } catch (error) {
+                        alert("登入失敗: " + error.message);
+                    }
+                }
+            };
 
             const importSeedData = async () => {
-                if (!user) return;
+                if (!user || !isAdmin) return;
                 setIsImporting(true);
                 try {
                     const promises = INITIAL_SEEDS.map(seed => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', seed.id), seed, { merge: true }));
@@ -116,14 +148,13 @@
                 } catch (err) { console.error("Error seeding data:", err); } finally { setIsImporting(false); }
             };
 
-            const [selectedFile, setSelectedFile] = useState(null);
             const handleImageChange = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                setSelectedFile(file);
                 const reader = new FileReader();
                 reader.onload = (event) => { setFormData(prev => ({ ...prev, imageUrl: event.target.result })); };
                 reader.readAsDataURL(file);
+                setSelectedFile(file);
             };
             const handleRemoveImage = () => { setFormData(prev => ({ ...prev, imageUrl: "" })); setSelectedFile(null); };
 
@@ -145,30 +176,24 @@
                 try {
                     const imageRef = ref(storage, url);
                     await deleteObject(imageRef);
-                    console.log("舊圖片已成功刪除");
-                } catch (error) {
-                    console.log("刪除舊圖片時忽略錯誤 (可能檔案原本就不存在):", error);
-                }
+                } catch (error) { console.log("Delete image ignored:", error); }
             };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!user) return;
+                if (!user || !isAdmin) return;
                 setIsUploading(true);
                 const timestamp = new Date().toISOString();
                 let finalImageUrl = formData.imageUrl;
                 try {
                     if (selectedFile) {
-                        if (editingItem && editingItem.imageUrl) {
-                            await deleteOldImage(editingItem.imageUrl);
-                        }
+                        if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
                         const fileExt = selectedFile.name.split('.').pop();
                         const fileName = `${Date.now()}.${fileExt}`;
                         const storageRef = ref(storage, `images/${fileName}`);
                         await uploadBytes(storageRef, selectedFile);
                         finalImageUrl = await getDownloadURL(storageRef);
-                    } 
-                    else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
+                    } else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
                         await deleteOldImage(editingItem.imageUrl);
                     }
 
@@ -184,12 +209,10 @@
             };
 
             const confirmDelete = async () => {
-                if (deleteId && user) {
+                if (deleteId && user && isAdmin) {
                     try { 
                         const itemToDelete = postcards.find(p => p.id === deleteId);
-                        if (itemToDelete && itemToDelete.imageUrl) {
-                            await deleteOldImage(itemToDelete.imageUrl);
-                        }
+                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
                         setDeleteId(null); 
                     } catch (error) { console.error("Delete error:", error); }
@@ -212,38 +235,22 @@
                 document.body.removeChild(link);
             };
 
-            // --- 新增：CSV 匯入功能 ---
             const handleImportCSV = (e) => {
                 const file = e.target.files[0];
-                if (!file || !user) return;
+                if (!file || !user || !isAdmin) return;
 
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     const text = event.target.result;
                     const rows = text.split('\n');
-                    // 移除第一行標題，並過濾掉空行
                     const dataRows = rows.slice(1).filter(row => row.trim() !== '');
-                    
                     setIsImporting(true);
-                    let successCount = 0;
-                    let errorCount = 0;
-
                     try {
                         const promises = dataRows.map(row => {
-                            // 簡易 CSV 解析 (注意：如果內容本身有逗號可能會出錯，這裡假設匯出格式是標準的)
-                            // 為了更精準處理引號 (")，我們使用正規表達式來切割
                             const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-                            if (!matches || matches.length < 9) return null; // 資料不完整
-
-                            // 清理引號函數
+                            if (!matches || matches.length < 9) return null;
                             const clean = (str) => str ? str.replace(/^"|"$/g, '').trim() : '';
-
-                            // 依照匯出的順序: ID, 大區分類(mainType), 大類別(category), 子類別(series), 名稱(name), 類型(type), 地點(location), 緯度(lat), 經度(lng), 時間(lastUpdated), 圖片(imageUrl)
-                            // 注意 matches 的索引可能因為 split 的方式略有不同，這裡做一個簡易對應
-                            // 比較安全的做法是用 split(',') 但要小心內容逗號。
-                            // 這裡我們用比較簡單的 split 配合 clean，假設沒有複雜的內文逗號
                             const cols = row.split(',').map(clean); 
-                            
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             const item = {
                                 id: id,
@@ -258,19 +265,11 @@
                                 lastUpdated: cols[9] || new Date().toISOString(),
                                 imageUrl: cols[10] || ''
                             };
-
                             return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
                         }).filter(p => p !== null);
-
                         await Promise.all(promises);
                         alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
-                    } catch (error) {
-                        console.error("Import error:", error);
-                        alert("匯入失敗: " + error.message);
-                    } finally {
-                        setIsImporting(false);
-                        e.target.value = ''; // 清空 input 以便下次能選同個檔案
-                    }
+                    } catch (error) { alert("匯入失敗: " + error.message); } finally { setIsImporting(false); e.target.value = ''; }
                 };
                 reader.readAsText(file);
             };
@@ -297,18 +296,31 @@
                 return groups;
             }, {});
 
+            const [selectedFileState, setSelectedFileState] = useState(null);
+
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
                     <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
-                            <div className="flex gap-2">
-                                <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
-                                <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
-                                    {isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}
+                            <div className="flex gap-2 items-center">
+                                {/* 登入按鈕 (鎖頭) */}
+                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}>
+                                    <Icon path={ICONS.Lock} />
                                 </button>
+                                
                                 <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
-                                <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
+                                
+                                {/* 只有管理員看得到 匯入 和 新增 */}
+                                {isAdmin && (
+                                    <>
+                                        <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
+                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                                            {isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}
+                                        </button>
+                                        <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </header>
@@ -333,10 +345,12 @@
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {items.map(item => (
                                                     <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
-                                                        <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                            <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
-                                                            <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
-                                                        </div>
+                                                        {isAdmin && (
+                                                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                                            </div>
+                                                        )}
                                                         {mainTab === '明信片' && (
                                                             <>
                                                                 {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /></div>)}
