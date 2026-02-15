@@ -240,11 +240,10 @@
                             if (cols.length < 2) return null;
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             
-                            // ★★★ 智慧補名邏輯 ★★★
-                            // 如果名稱 (cols[4]) 是空的，但地點 (cols[6]) 有字，就用地點當名稱
-                            let finalName = cols[4];
-                            if (!finalName && cols[6]) {
-                                finalName = cols[6];
+                            // ★★★ 自動修正邏輯：如果名稱(Col4)是空的，就用地點(Col6)來當名稱 ★★★
+                            let importedName = cols[4];
+                            if (!importedName && cols[6]) {
+                                importedName = cols[6]; // 強制使用地點作為名稱
                             }
 
                             return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), {
@@ -252,7 +251,7 @@
                                 mainType: cols[1], 
                                 category: cols[2], 
                                 series: cols[3], 
-                                name: finalName, // 使用智慧判斷後的名稱
+                                name: importedName, // 這裡會存入修正後的名稱
                                 type: cols[5], 
                                 location: cols[6], 
                                 lat: cols[7], 
