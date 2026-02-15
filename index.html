@@ -19,7 +19,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        // 注意：這裡多引入了 deleteObject
         import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
         const firebaseConfig = {
@@ -47,6 +46,7 @@
         const ICONS = {
             Leaf: <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />,
             Download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3" />,
+            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />, // 用於匯入按鈕
             Plus: <path d="M5 12h14 M12 5v14" />,
             Search: <Fragment><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></Fragment>,
             Edit2: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
@@ -57,7 +57,7 @@
             ExternalLink: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14 21 3" />,
             AlertTriangle: <Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" x2="12" y1="9" y2="13" /><line x1="12" x2="12.01" y1="17" y2="17" /></Fragment>,
             X: <path d="M18 6 6 18 M6 6l12 12" />,
-            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
+            UploadCloud: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
             Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>
         };
 
@@ -81,6 +81,8 @@
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
             const fileInputRef = useRef(null);
+            // 新增：CSV 匯入用的隱藏 input ref
+            const csvInputRef = useRef(null);
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
 
             useEffect(() => {
@@ -138,11 +140,9 @@
                 setIsModalOpen(true);
             };
 
-            // --- 核心修改：刪除舊圖片的輔助函式 ---
             const deleteOldImage = async (url) => {
                 if (!url) return;
                 try {
-                    // Firebase 很聰明，可以直接用 downloadURL 來建立 reference 並刪除
                     const imageRef = ref(storage, url);
                     await deleteObject(imageRef);
                     console.log("舊圖片已成功刪除");
@@ -158,21 +158,16 @@
                 const timestamp = new Date().toISOString();
                 let finalImageUrl = formData.imageUrl;
                 try {
-                    // 如果有上傳新檔案
                     if (selectedFile) {
-                        // 1. 如果是「編輯模式」且「原本有舊圖」，先刪除舊圖
                         if (editingItem && editingItem.imageUrl) {
                             await deleteOldImage(editingItem.imageUrl);
                         }
-
-                        // 2. 上傳新圖
                         const fileExt = selectedFile.name.split('.').pop();
                         const fileName = `${Date.now()}.${fileExt}`;
                         const storageRef = ref(storage, `images/${fileName}`);
                         await uploadBytes(storageRef, selectedFile);
                         finalImageUrl = await getDownloadURL(storageRef);
                     } 
-                    // 如果沒有上傳新檔案，但是使用者按了「移除」按鈕 (formData.imageUrl 變空的，但原本有圖)
                     else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
                         await deleteOldImage(editingItem.imageUrl);
                     }
@@ -191,15 +186,10 @@
             const confirmDelete = async () => {
                 if (deleteId && user) {
                     try { 
-                        // 1. 先找出要刪除的那一筆資料
                         const itemToDelete = postcards.find(p => p.id === deleteId);
-                        
-                        // 2. 如果那筆資料有圖片，先刪除 storage 裡的圖片
                         if (itemToDelete && itemToDelete.imageUrl) {
                             await deleteOldImage(itemToDelete.imageUrl);
                         }
-
-                        // 3. 再刪除資料庫裡的文字紀錄
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
                         setDeleteId(null); 
                     } catch (error) { console.error("Delete error:", error); }
@@ -220,6 +210,69 @@
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+            };
+
+            // --- 新增：CSV 匯入功能 ---
+            const handleImportCSV = (e) => {
+                const file = e.target.files[0];
+                if (!file || !user) return;
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const text = event.target.result;
+                    const rows = text.split('\n');
+                    // 移除第一行標題，並過濾掉空行
+                    const dataRows = rows.slice(1).filter(row => row.trim() !== '');
+                    
+                    setIsImporting(true);
+                    let successCount = 0;
+                    let errorCount = 0;
+
+                    try {
+                        const promises = dataRows.map(row => {
+                            // 簡易 CSV 解析 (注意：如果內容本身有逗號可能會出錯，這裡假設匯出格式是標準的)
+                            // 為了更精準處理引號 (")，我們使用正規表達式來切割
+                            const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+                            if (!matches || matches.length < 9) return null; // 資料不完整
+
+                            // 清理引號函數
+                            const clean = (str) => str ? str.replace(/^"|"$/g, '').trim() : '';
+
+                            // 依照匯出的順序: ID, 大區分類(mainType), 大類別(category), 子類別(series), 名稱(name), 類型(type), 地點(location), 緯度(lat), 經度(lng), 時間(lastUpdated), 圖片(imageUrl)
+                            // 注意 matches 的索引可能因為 split 的方式略有不同，這裡做一個簡易對應
+                            // 比較安全的做法是用 split(',') 但要小心內容逗號。
+                            // 這裡我們用比較簡單的 split 配合 clean，假設沒有複雜的內文逗號
+                            const cols = row.split(',').map(clean); 
+                            
+                            const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                            const item = {
+                                id: id,
+                                mainType: cols[1] || '明信片',
+                                category: cols[2] || '',
+                                series: cols[3] || '',
+                                name: cols[4] || '',
+                                type: cols[5] || '',
+                                location: cols[6] || '',
+                                lat: cols[7] || '',
+                                lng: cols[8] || '',
+                                lastUpdated: cols[9] || new Date().toISOString(),
+                                imageUrl: cols[10] || ''
+                            };
+
+                            return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
+                        }).filter(p => p !== null);
+
+                        await Promise.all(promises);
+                        alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
+                    } catch (error) {
+                        console.error("Import error:", error);
+                        alert("匯入失敗: " + error.message);
+                    } finally {
+                        setIsImporting(false);
+                        e.target.value = ''; // 清空 input 以便下次能選同個檔案
+                    }
+                };
+                reader.readAsText(file);
             };
 
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category))].sort();
@@ -250,6 +303,10 @@
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
                             <div className="flex gap-2">
+                                <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
+                                <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                                    {isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}
+                                </button>
                                 <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
                                 <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
                             </div>
