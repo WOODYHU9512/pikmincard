@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標圖鑑 (公開讀取版)</title>
+    <title>Pikmin 座標圖鑑 (批量刪除版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -83,6 +83,10 @@
             const [copyFeedback, setCopyFeedback] = useState(null);
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
+            
+            // ★ 新增：追蹤勾選的項目 ID
+            const [selectedIds, setSelectedIds] = useState(new Set());
+
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
@@ -95,6 +99,7 @@
                     } else {
                         setUser(null);
                         setIsAdmin(false);
+                        setSelectedIds(new Set()); // 登出時清空選擇
                     }
                 });
             }, []);
@@ -118,6 +123,17 @@
                 });
                 return () => unsubscribe();
             }, [isAdmin]);
+
+            // ★ 新增：切換勾選狀態
+            const toggleSelection = (id) => {
+                const newSelected = new Set(selectedIds);
+                if (newSelected.has(id)) {
+                    newSelected.delete(id);
+                } else {
+                    newSelected.add(id);
+                }
+                setSelectedIds(newSelected);
+            };
 
             const handleAdminLogin = async () => {
                 if (isAdmin) {
@@ -205,6 +221,32 @@
                 } catch (error) { console.error("Save error:", error); alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
+            // ★ 新增：批量刪除功能
+            const handleBatchDelete = async () => {
+                if (selectedIds.size === 0) return;
+                if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
+
+                setIsUploading(true); // 借用上傳中的狀態來顯示忙碌
+                try {
+                    const promises = Array.from(selectedIds).map(async (id) => {
+                        const itemToDelete = postcards.find(p => p.id === id);
+                        if (itemToDelete) {
+                            if (itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
+                        }
+                    });
+                    
+                    await Promise.all(promises);
+                    setSelectedIds(new Set()); // 清空選取
+                    alert("批量刪除完成！");
+                } catch (error) {
+                    console.error("Batch delete error:", error);
+                    alert("刪除失敗: " + error.message);
+                } finally {
+                    setIsUploading(false);
+                }
+            };
+
             const confirmDelete = async () => {
                 if (deleteId && isAdmin) {
                     try { 
@@ -244,10 +286,9 @@
                     setIsImporting(true);
                     try {
                         const promises = dataRows.map(row => {
-                            const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
-                            if (!matches || matches.length < 9) return null;
-                            const clean = (str) => str ? str.replace(/^"|"$/g, '').trim() : '';
-                            const cols = row.split(',').map(clean); 
+                            const cols = row.split(',').map(col => col.trim().replace(/^"|"$/g, ''));
+                            if (cols.length < 2) return null;
+
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             const item = {
                                 id: id,
@@ -310,6 +351,13 @@
                                 
                                 {isAdmin && (
                                     <>
+                                        {/* ★ 新增：批量刪除按鈕 (只有在有選取時顯示) */}
+                                        {selectedIds.size > 0 && (
+                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
+                                                <Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})
+                                            </button>
+                                        )}
+
                                         <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
                                         <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
                                             {isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}
@@ -342,10 +390,22 @@
                                                 {items.map(item => (
                                                     <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
                                                         {isAdmin && (
-                                                            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                                <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
-                                                                <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
-                                                            </div>
+                                                            <>
+                                                                {/* ★ 新增：左上角勾選框 (只有管理員看得到) */}
+                                                                <div className="absolute top-4 left-4 z-10">
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={selectedIds.has(item.id)} 
+                                                                        onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}}
+                                                                        className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm"
+                                                                    />
+                                                                </div>
+
+                                                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                                                </div>
+                                                            </>
                                                         )}
                                                         {mainTab === '明信片' && (
                                                             <>
