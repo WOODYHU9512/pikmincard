@@ -63,8 +63,6 @@
             Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         };
 
-        const INITIAL_SEEDS = [];
-
         const App = () => {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
@@ -153,7 +151,14 @@
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
-                    setFormData({ imageUrl: "", mainType: "明信片", ...item });
+                    
+                    // ★★★ 修正這裡：如果編輯時地點是空的，但名稱有值，就自動把它拉到「地點」欄位顯示 ★★★
+                    let editLocation = item.location;
+                    if ((item.mainType === '純點' || item.mainType === '活動金盆') && !editLocation && item.name) {
+                        editLocation = item.name;
+                    }
+
+                    setFormData({ imageUrl: "", mainType: "明信片", ...item, location: editLocation || "" });
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
@@ -286,7 +291,6 @@
                     const dataRows = rows.slice(1).filter(row => row.trim() !== '');
                     setIsImporting(true);
                     try {
-                        // ★★★ 工業級 CSV 解析器，完美處理引號與逗號 ★★★
                         const parseCSVRow = (str) => {
                             let ret = [], val = '', inQ = false;
                             for (let i = 0; i < str.length; i++) {
@@ -308,14 +312,10 @@
 
                         const promises = dataRows.map(row => {
                             const cols = parseCSVRow(row);
-                            
-                            // 預防空行
                             if (cols.length < 2) return null;
 
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             let importedName = cols[4];
-                            
-                            // 智慧補名邏輯
                             if (!importedName && cols[6]) {
                                 importedName = cols[6];
                             }
@@ -389,7 +389,6 @@
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
-                                {/* 登入按鈕 */}
                                 <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}>
                                     <Icon path={ICONS.Lock} />
                                 </button>
@@ -398,7 +397,6 @@
                                 
                                 {isAdmin && (
                                     <>
-                                        {/* 批量刪除按鈕 */}
                                         {selectedIds.size > 0 && (
                                             <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
                                                 <Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})
@@ -428,7 +426,7 @@
                                     {mainTab === '明信片' && (
                                         <div className="flex flex-wrap gap-2">{categories.map(cat => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium ${activeCategory === cat ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>{cat}</button>))}</div>
                                     )}
-                                    <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋地點、名稱或類型..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
+                                    <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
                                 </div>
                                 <div className="space-y-8">
                                     {Object.entries(groupedPostcards).map(([groupKey, items]) => (
@@ -541,6 +539,7 @@
                                         <div className="flex bg-slate-100 p-1 rounded-lg mb-2">
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
+                                            {/* ★ 新增：表單的活動金盆按鈕 */}
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
                                         </div>
                                     )}
@@ -575,6 +574,7 @@
                                             <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
+                                        // ★ 這裡讓純點和活動金盆共用相同的輸入欄位
                                         <div>
                                             <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
                                             <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
