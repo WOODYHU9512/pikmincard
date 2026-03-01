@@ -20,7 +20,6 @@
         import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-        // ★★★ 你的新專案 pikcardrecord ★★★
         const firebaseConfig = {
             apiKey: "AIzaSyDEsqE2MtAJnMGm17kwjnftuCcieV0z6Bc",
             authDomain: "pikcardrecord.firebaseapp.com",
@@ -35,8 +34,6 @@
         const db = getFirestore(app);
         const storage = getStorage(app);
         const appId = 'pikmin-public-v1';
-
-        // ★★★ 只有用這個 Email 登入才有編輯權限 ★★★
         const ADMIN_EMAIL = "admin@pikmin.map"; 
 
         const Icon = ({ path }) => (
@@ -62,6 +59,8 @@
             Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
             Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         };
+
+        const INITIAL_SEEDS = [];
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -151,13 +150,10 @@
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
-                    
-                    // ★★★ 修正這裡：如果編輯時地點是空的，但名稱有值，就自動把它拉到「地點」欄位顯示 ★★★
                     let editLocation = item.location;
                     if ((item.mainType === '純點' || item.mainType === '活動金盆') && !editLocation && item.name) {
                         editLocation = item.name;
                     }
-
                     setFormData({ imageUrl: "", mainType: "明信片", ...item, location: editLocation || "" });
                     setSelectedFileState(null);
                 } else {
@@ -268,13 +264,48 @@
                 navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
             };
 
+            // ★★★ 新增的選擇性匯出功能 ★★★
             const handleExportCSV = () => {
+                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n\n請輸入對應數字 (1-4)：", "1");
+                
+                if (!option) return; // 使用者按了取消
+
+                let exportData = [];
+                let fileNameSuffix = "";
+
+                switch (option.trim()) {
+                    case "1":
+                        exportData = postcards;
+                        fileNameSuffix = "全部";
+                        break;
+                    case "2":
+                        exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片');
+                        fileNameSuffix = "明信片";
+                        break;
+                    case "3":
+                        exportData = postcards.filter(p => p.mainType === '純點');
+                        fileNameSuffix = "純點";
+                        break;
+                    case "4":
+                        exportData = postcards.filter(p => p.mainType === '活動金盆');
+                        fileNameSuffix = "活動金盆";
+                        break;
+                    default:
+                        alert("輸入代碼錯誤，請輸入 1 到 4 的數字，已取消匯出。");
+                        return;
+                }
+
+                if (exportData.length === 0) {
+                    alert(`目前「${fileNameSuffix}」沒有任何資料可供匯出。`);
+                    return;
+                }
+
                 const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "緯度", "經度", "最後更新時間", "圖片連結"];
-                const csvContent = [headers.join(","), ...postcards.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
+                const csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
                 const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
-                link.setAttribute("download", `pikmin_postcards_${new Date().toISOString().slice(0, 10)}.csv`);
+                link.setAttribute("download", `pikmin_postcards_${fileNameSuffix}_${new Date().toISOString().slice(0, 10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
@@ -539,7 +570,6 @@
                                         <div className="flex bg-slate-100 p-1 rounded-lg mb-2">
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
-                                            {/* ★ 新增：表單的活動金盆按鈕 */}
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
                                         </div>
                                     )}
@@ -574,7 +604,6 @@
                                             <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
-                                        // ★ 這裡讓純點和活動金盆共用相同的輸入欄位
                                         <div>
                                             <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
                                             <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
