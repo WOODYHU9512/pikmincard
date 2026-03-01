@@ -63,10 +63,7 @@
             Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
         };
 
-        const INITIAL_SEEDS = [
-            { id: "1770654209716", category: "動漫", series: "辛普森", name: "母女", type: "種花", location: "淡水天元宮附近", lat: "25.189888", lng: "121.488269", lastUpdated: "2026-02-09T16:23:29.716Z" },
-            { id: "1769696964978", category: "動漫", series: "烏龍派出所", name: "兩津眉毛", type: "種花", location: "日本東京龜有", lat: "35.764452", lng: "139.847733", lastUpdated: "2026-01-29T14:29:24.978Z" }
-        ];
+        const INITIAL_SEEDS = [];
 
         const App = () => {
             const [user, setUser] = useState(null);
@@ -106,15 +103,9 @@
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
                     const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    
-                    if (snapshot.empty && !hasInitializedSeeds.current && isAdmin) {
-                        hasInitializedSeeds.current = true;
-                        importSeedData();
-                    } else {
-                        docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
-                        setPostcards(docs);
-                        setLoading(false);
-                    }
+                    docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
+                    setPostcards(docs);
+                    setLoading(false);
                 }, (error) => { 
                     console.error("Data sync error:", error); 
                     setLoading(false); 
@@ -147,15 +138,6 @@
                         alert("登入失敗: " + error.message);
                     }
                 }
-            };
-
-            const importSeedData = async () => {
-                if (!isAdmin) return;
-                setIsImporting(true);
-                try {
-                    const promises = INITIAL_SEEDS.map(seed => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', seed.id), seed, { merge: true }));
-                    await Promise.all(promises);
-                } catch (err) { console.error("Error seeding data:", err); } finally { setIsImporting(false); }
             };
 
             const handleImageChange = (e) => {
@@ -259,7 +241,6 @@
                 const confirmMsg = `警告：您確定要刪除「${groupKey}」類別下的所有 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`;
                 if (confirm(confirmMsg)) {
                     const idsToDelete = itemsInGroup.map(item => item.id);
-                    // 這裡為了簡化直接覆用批量刪除邏輯
                     setIsUploading(true);
                     const deletePromises = idsToDelete.map(async (id) => {
                         const itemToDelete = postcards.find(p => p.id === id);
@@ -305,18 +286,35 @@
                     const dataRows = rows.slice(1).filter(row => row.trim() !== '');
                     setIsImporting(true);
                     try {
-                        const promises = dataRows.map(row => {
-                            const rawCols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-                            const cols = rawCols.map(col => {
-                                let c = col.trim();
-                                if (c.startsWith('"') && c.endsWith('"')) c = c.slice(1, -1);
-                                return c.replace(/""/g, '"');
-                            });
+                        // ★★★ 工業級 CSV 解析器，完美處理引號與逗號 ★★★
+                        const parseCSVRow = (str) => {
+                            let ret = [], val = '', inQ = false;
+                            for (let i = 0; i < str.length; i++) {
+                                let c = str[i];
+                                if (inQ) {
+                                    if (c === '"') {
+                                        if (i + 1 < str.length && str[i+1] === '"') { val += '"'; i++; } 
+                                        else { inQ = false; }
+                                    } else { val += c; }
+                                } else {
+                                    if (c === '"') { inQ = true; }
+                                    else if (c === ',') { ret.push(val.trim()); val = ''; }
+                                    else { val += c; }
+                                }
+                            }
+                            ret.push(val.trim());
+                            return ret;
+                        };
 
+                        const promises = dataRows.map(row => {
+                            const cols = parseCSVRow(row);
+                            
+                            // 預防空行
                             if (cols.length < 2) return null;
 
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             let importedName = cols[4];
+                            
                             // 智慧補名邏輯
                             if (!importedName && cols[6]) {
                                 importedName = cols[6];
@@ -337,9 +335,16 @@
                             };
                             return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
                         }).filter(p => p !== null);
+
                         await Promise.all(promises);
                         alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
-                    } catch (error) { alert("匯入失敗: " + error.message); } finally { setIsImporting(false); e.target.value = ''; }
+                    } catch (error) { 
+                        console.error(error);
+                        alert("匯入失敗，請確認格式。錯誤訊息: " + error.message); 
+                    } finally { 
+                        setIsImporting(false); 
+                        e.target.value = ''; 
+                    }
                 };
                 reader.readAsText(file);
             };
@@ -348,7 +353,6 @@
             const categories = ["全部", ...availableCategories];
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
             
-            // 收集純點與活動金盆的可用類型
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
 
@@ -385,7 +389,7 @@
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
-                                {/* 登入按鈕 (鎖頭) */}
+                                {/* 登入按鈕 */}
                                 <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}>
                                     <Icon path={ICONS.Lock} />
                                 </button>
@@ -418,14 +422,13 @@
                                 <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
                                     <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
                                     <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
-                                    {/* ★ 新增：活動金盆 分頁按鈕 */}
                                     <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
                                 </div>
                                 <div className="flex flex-col md:flex-row gap-4 mb-8 justify-between">
                                     {mainTab === '明信片' && (
                                         <div className="flex flex-wrap gap-2">{categories.map(cat => (<button key={cat} onClick={() => setActiveCategory(cat)} className={`px-4 py-1.5 rounded-full text-sm font-medium ${activeCategory === cat ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>{cat}</button>))}</div>
                                     )}
-                                    <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
+                                    <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋地點、名稱或類型..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
                                 </div>
                                 <div className="space-y-8">
                                     {Object.entries(groupedPostcards).map(([groupKey, items]) => (
@@ -482,7 +485,6 @@
                                                                 <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span>
                                                             </div>
                                                         )}
-                                                        {/* ★ 新增：活動金盆的卡片標籤 */}
                                                         {mainTab === '活動金盆' && (
                                                             <div className="mb-3">
                                                                 <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span>
@@ -490,13 +492,11 @@
                                                             </div>
                                                         )}
                                                         
-                                                        {/* 大標題顯示邏輯：純點與活動金盆顯示地點，明信片顯示名稱 */}
                                                         <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">
                                                             {mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}
                                                         </h3>
 
                                                         <div className="space-y-3 text-sm text-slate-600">
-                                                            {/* 純點與活動金盆不重複顯示地點 */}
                                                             {mainTab === '明信片' && (
                                                                 <div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>
                                                             )}
@@ -541,7 +541,6 @@
                                         <div className="flex bg-slate-100 p-1 rounded-lg mb-2">
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
-                                            {/* ★ 新增：表單的活動金盆按鈕 */}
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
                                         </div>
                                     )}
@@ -576,7 +575,6 @@
                                             <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
-                                        // ★ 這裡讓純點和活動金盆共用相同的輸入欄位
                                         <div>
                                             <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
                                             <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
