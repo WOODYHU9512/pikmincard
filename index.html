@@ -254,6 +254,30 @@
                 }
             };
 
+            const handleGroupDelete = (groupKey, itemsInGroup) => {
+                if (!isAdmin) return;
+                const confirmMsg = `警告：您確定要刪除「${groupKey}」類別下的所有 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`;
+                if (confirm(confirmMsg)) {
+                    const idsToDelete = itemsInGroup.map(item => item.id);
+                    // 這裡為了簡化直接覆用批量刪除邏輯
+                    setIsUploading(true);
+                    const deletePromises = idsToDelete.map(async (id) => {
+                        const itemToDelete = postcards.find(p => p.id === id);
+                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
+                    });
+                    Promise.all(deletePromises).then(() => {
+                        alert("刪除成功！");
+                        setSelectedIds(new Set());
+                        setIsUploading(false);
+                    }).catch((error) => {
+                        console.error("Delete error:", error);
+                        alert("刪除失敗: " + error.message);
+                        setIsUploading(false);
+                    });
+                }
+            };
+
             const handleCopyText = (text, feedbackKey) => {
                 navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
             };
@@ -292,12 +316,18 @@
                             if (cols.length < 2) return null;
 
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                            let importedName = cols[4];
+                            // 智慧補名邏輯
+                            if (!importedName && cols[6]) {
+                                importedName = cols[6];
+                            }
+
                             const item = {
                                 id: id,
                                 mainType: cols[1] || '明信片',
                                 category: cols[2] || '',
                                 series: cols[3] || '',
-                                name: cols[4] || '',
+                                name: importedName,
                                 type: cols[5] || '',
                                 location: cols[6] || '',
                                 lat: cols[7] || '',
@@ -317,13 +347,15 @@
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category))].sort();
             const categories = ["全部", ...availableCategories];
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
+            
+            // 收集純點與活動金盆的可用類型
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
+            const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
 
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
                 
-                // ★★★ 修正這裡：更全面的搜尋邏輯 ★★★
                 const s = searchTerm.toLowerCase();
                 const matchesSearch = 
                     (item.name || "").toLowerCase().includes(s) || 
@@ -362,7 +394,7 @@
                                 
                                 {isAdmin && (
                                     <>
-                                        {/* ★ 新增：批量刪除按鈕 (只有在有選取時顯示) */}
+                                        {/* 批量刪除按鈕 */}
                                         {selectedIds.size > 0 && (
                                             <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
                                                 <Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})
@@ -383,9 +415,11 @@
                         {loading && <div className="text-center py-10">載入中...</div>}
                         {!loading && (
                             <>
-                                <div className="flex border-b border-slate-200 mb-6">
-                                    <button onClick={() => setMainTab('明信片')} className={`pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
-                                    <button onClick={() => setMainTab('純點')} className={`pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
+                                <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
+                                    <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
+                                    <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
+                                    {/* ★ 新增：活動金盆 分頁按鈕 */}
+                                    <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
                                 </div>
                                 <div className="flex flex-col md:flex-row gap-4 mb-8 justify-between">
                                     {mainTab === '明信片' && (
@@ -396,13 +430,19 @@
                                 <div className="space-y-8">
                                     {Object.entries(groupedPostcards).map(([groupKey, items]) => (
                                         <section key={groupKey}>
-                                            <h2 className="text-xl font-bold text-slate-700 mb-4 pl-3 border-l-4 border-emerald-500">{groupKey}</h2>
+                                            <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
+                                                {isAdmin && (
+                                                    <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors" title={`刪除所有「${groupKey}」資料`}>
+                                                        <Icon path={ICONS.Trash2} />
+                                                    </button>
+                                                )}
+                                            </div>
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {items.map(item => (
                                                     <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
                                                         {isAdmin && (
                                                             <>
-                                                                {/* ★ 新增：左上角勾選框 (只有管理員看得到) */}
                                                                 <div className="absolute top-4 left-4 z-10">
                                                                     <input 
                                                                         type="checkbox" 
@@ -433,18 +473,36 @@
                                                                         </span>
                                                                         <span className="text-xs text-slate-400">{item.category}</span>
                                                                     </div>
-                                                                    <h3 className="text-lg font-bold text-slate-800">{item.name}</h3>
                                                                 </div>
                                                             </>
                                                         )}
-                                                        {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                        {mainTab === '純點' && (
+                                                            <div className="mb-3">
+                                                                <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span>
+                                                                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span>
+                                                            </div>
+                                                        )}
+                                                        {/* ★ 新增：活動金盆的卡片標籤 */}
+                                                        {mainTab === '活動金盆' && (
+                                                            <div className="mb-3">
+                                                                <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span>
+                                                                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span>
+                                                            </div>
+                                                        )}
+                                                        
+                                                        {/* 大標題顯示邏輯：純點與活動金盆顯示地點，明信片顯示名稱 */}
+                                                        <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">
+                                                            {mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}
+                                                        </h3>
+
                                                         <div className="space-y-3 text-sm text-slate-600">
-                                                            {mainTab === '明信片' ? (<div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>) : (<h3 className="text-base font-bold text-slate-800 flex items-start gap-2 mb-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div>{item.location || '未提供地點說明'}</h3>)}
+                                                            {/* 純點與活動金盆不重複顯示地點 */}
+                                                            {mainTab === '明信片' && (
+                                                                <div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>
+                                                            )}
                                                             <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
                                                                 <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
                                                                 <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
-                                                                
-                                                                {/* ★★★ 這裡新增了一鍵複製功能 ★★★ */}
                                                                 <div className="border-t border-slate-200/50 pt-2 mt-1">
                                                                     <button 
                                                                         onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} 
@@ -453,7 +511,6 @@
                                                                         <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
                                                                     </button>
                                                                 </div>
-
                                                             </div>
                                                             <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
                                                         </div>
@@ -484,6 +541,8 @@
                                         <div className="flex bg-slate-100 p-1 rounded-lg mb-2">
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
+                                            {/* ★ 新增：表單的活動金盆按鈕 */}
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
                                         </div>
                                     )}
                                     {formData.mainType === '明信片' ? (
@@ -516,7 +575,16 @@
                                             <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
                                             <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
-                                    ) : (<div><label className="text-xs font-bold text-slate-500">純點類型</label><input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} /><datalist id="pure-opts">{availablePureTypes.map(t => <option key={t} value={t} />)}</datalist></div>)}
+                                    ) : (
+                                        // ★ 這裡讓純點和活動金盆共用相同的輸入欄位
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
+                                            <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                            <datalist id="pure-opts">
+                                                {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
+                                            </datalist>
+                                        </div>
+                                    )}
                                     <div><label className="text-xs font-bold text-slate-500">地點說明</label><input className="w-full border rounded p-2 text-sm" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div><label className="text-xs font-bold text-slate-500">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
