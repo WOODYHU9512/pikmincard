@@ -89,7 +89,11 @@
             const csvInputRef = useRef(null);
             const [importMode, setImportMode] = useState("1"); 
             
-            const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
+            // ★ formData 擴充了花朵紀錄的專屬欄位 (rDate, rMethod...)
+            const [formData, setFormData] = useState({ 
+                mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "",
+                rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+            });
             const [selectedFileState, setSelectedFileState] = useState(null);
 
             useEffect(() => {
@@ -170,22 +174,30 @@
                     if ((item.mainType === '純點' || item.mainType === '活動金盆') && !editLocation && item.name) {
                         editLocation = item.name;
                     }
-                    setFormData({ imageUrl: "", mainType: "明信片", ...item, location: editLocation || "" });
+                    setFormData({ 
+                        imageUrl: "", mainType: "明信片", ...item, location: editLocation || "",
+                        rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+                    });
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
-                    setFormData({ mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "" });
+                    setFormData({ 
+                        mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "",
+                        rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+                    });
                     setSelectedFileState(null);
                 }
                 setIsModalOpen(true);
             };
 
+            // ★★★ 大改版：送出時的「防重複與合併」邏輯 ★★★
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 if (!isAdmin) return;
                 setIsUploading(true);
                 const timestamp = new Date().toISOString();
                 let finalImageUrl = formData.imageUrl;
+                
                 try {
                     if (selectedFileState) {
                         if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
@@ -198,17 +210,68 @@
                         await deleteOldImage(editingItem.imageUrl);
                     }
 
-                    const newItem = { ...formData, imageUrl: finalImageUrl, lastUpdated: timestamp };
-                    if (newItem.mainType === '花朵變異' && !newItem.records) newItem.records = []; 
+                    let docId = editingItem ? editingItem.id : Date.now().toString();
+                    let baseItem = editingItem || {};
 
-                    if (editingItem) {
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', editingItem.id), newItem, { merge: true });
-                    } else {
-                        const newId = Date.now().toString();
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', newId), { ...newItem, id: newId });
+                    // ★ 防呆防重複：如果是新增「花朵變異」，檢查是否已經有同名的花了
+                    if (!editingItem && formData.mainType === '花朵變異' && formData.name) {
+                        const searchName = formData.name.trim().toLowerCase();
+                        const existingFlower = postcards.find(p => p.mainType === '花朵變異' && p.name && p.name.trim().toLowerCase() === searchName);
+                        if (existingFlower) {
+                            docId = existingFlower.id; // 直接套用舊 ID
+                            baseItem = existingFlower; // 繼承舊資料 (包含舊的歷史紀錄)
+                            // 如果這次沒有上傳新圖片，保留原本的圖片
+                            if (!finalImageUrl && existingFlower.imageUrl) {
+                                finalImageUrl = existingFlower.imageUrl;
+                            }
+                        }
                     }
+
+                    const newItem = {
+                        id: docId,
+                        mainType: formData.mainType,
+                        name: formData.name.trim(),
+                        imageUrl: finalImageUrl,
+                        lastUpdated: timestamp
+                    };
+
+                    if (formData.mainType === '花朵變異') {
+                        // 處理花朵的陣列
+                        const currentRecords = baseItem.records || [];
+                        let newRecords = [...currentRecords];
+                        
+                        // ★ 如果使用者有填寫「種法」，就順便新增一筆紀錄！
+                        if (formData.rMethod && formData.rMethod.trim() !== '') {
+                            newRecords.push({
+                                rId: Date.now().toString() + Math.random().toString().slice(2,6),
+                                date: formData.rDate,
+                                method: formData.rMethod.trim(),
+                                w: parseInt(formData.rW) || 0,
+                                b: parseInt(formData.rB) || 0,
+                                y: parseInt(formData.rY) || 0,
+                                r: parseInt(formData.rR) || 0,
+                            });
+                        }
+                        newItem.records = newRecords;
+                    } else {
+                        // 明信片、純點、活動金盆的專屬欄位
+                        newItem.category = formData.category;
+                        newItem.series = formData.series;
+                        newItem.type = formData.type;
+                        newItem.location = formData.location;
+                        newItem.lat = formData.lat;
+                        newItem.lng = formData.lng;
+                    }
+
+                    // 使用 merge: true，這樣就算覆蓋現有的卡片也不會洗掉其他隱藏欄位
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', docId), newItem, { merge: true });
                     setIsModalOpen(false);
-                } catch (error) { alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
+                } catch (error) { 
+                    console.error("Save error:", error); 
+                    alert("儲存失敗: " + error.message); 
+                } finally { 
+                    setIsUploading(false); 
+                }
             };
 
             const handleOpenRecordModal = (flowerId) => {
@@ -455,6 +518,8 @@
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
+            // ★ 給下拉選單用的花朵名單
+            const availableFlowerNames = [...new Set(postcards.filter(p => p.mainType === '花朵變異').map(p => p.name).filter(Boolean))].sort();
 
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
@@ -547,7 +612,6 @@
                                                             )}
                                                             {mainTab === '明信片' && (
                                                                 <>
-                                                                    {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                                     {item.imageUrl && (
                                                                         <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2">
                                                                             <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
@@ -620,7 +684,6 @@
                                                 <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
                                                     {item.imageUrl ? (
                                                         <div className="h-48 w-full bg-slate-100 relative group p-2">
-                                                            {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                             <img 
                                                                 src={item.imageUrl} 
                                                                 alt={item.name} 
@@ -685,12 +748,10 @@
                                                                                     <span className="text-red-500">🔴 {stTotal ? ((stats.r/stTotal)*100).toFixed(0) : 0}%</span>
                                                                                 </div>
 
-                                                                                {/* ★★★ 將明細清單移出 isAdmin 的判斷，讓所有人都能看到 ★★★ */}
                                                                                 <div className="mt-3 pt-3 border-t border-slate-200/60 space-y-2">
                                                                                     {stats.list.map(r => (
                                                                                         <div key={r.rId} className="flex justify-between items-center text-xs font-medium text-slate-500 hover:bg-slate-100 p-1.5 rounded">
                                                                                             <span>{r.date} ➡️ ⚪{r.w} 🔵{r.b} 🟡{r.y} 🔴{r.r}</span>
-                                                                                            {/* 只有刪除按鈕會被隱藏，非管理員看不到垃圾桶 */}
                                                                                             {isAdmin && (
                                                                                                 <button onClick={() => handleDeleteRecord(item.id, r.rId)} className="text-red-400 hover:text-red-600 p-1 bg-white rounded shadow-sm"><Icon path={ICONS.Trash2}/></button>
                                                                                             )}
@@ -765,15 +826,11 @@
                                     {formData.mainType === '花朵變異' ? (
                                         <>
                                             <div className="space-y-2">
-                                                <label className="block text-xs font-bold text-slate-500">花朵封面照 (非必填)</label>
+                                                <label className="block text-xs font-bold text-slate-500">1. 花朵封面照 (非必填)</label>
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
-                                                        <img 
-                                                            src={formData.imageUrl} 
-                                                            alt="Preview" 
-                                                            className="w-full h-full object-contain p-2" 
-                                                        />
+                                                        <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-contain p-2" />
                                                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                             <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
                                                             <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
@@ -781,7 +838,29 @@
                                                     </div>
                                                 ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-pink-400 hover:text-pink-600 hover:bg-pink-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳花朵照</span></button>)}
                                             </div>
-                                            <div><label className="text-xs font-bold text-slate-500">花朵名稱</label><input required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500">2. 花朵名稱 (必填)</label>
+                                                <input list="flower-opts" required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
+                                                <datalist id="flower-opts">
+                                                    {availableFlowerNames.map(f => <option key={f} value={f} />)}
+                                                </datalist>
+                                            </div>
+                                            
+                                            {/* ★★★ 新增：連同紀錄一起填寫的區塊 ★★★ */}
+                                            <div className="mt-4 p-4 bg-pink-50 border border-pink-100 rounded-xl space-y-3">
+                                                <h4 className="text-sm font-bold text-pink-600 mb-1 flex items-center gap-1">
+                                                    <Icon path={ICONS.Plus}/> 3. 同時新增一筆紀錄 (選填)
+                                                </h4>
+                                                <p className="text-xs text-slate-500 -mt-2 mb-2">如果您只是要上傳/更換照片，這裡可以留空。</p>
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1">日期</label><input type="date" className="w-full border rounded p-2 text-sm" value={formData.rDate} onChange={e => setFormData({ ...formData, rDate: e.target.value })} /></div>
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1">種法 (Tag)</label><input type="text" placeholder="例如: 黃藍油菜+櫻花" className="w-full border rounded p-2 text-sm" value={formData.rMethod} onChange={e => setFormData({ ...formData, rMethod: e.target.value })} /></div>
+                                                <div className="grid grid-cols-4 gap-2 mt-2">
+                                                    <div><label className="text-xs font-bold text-slate-400 block mb-1 text-center">白</label><input type="number" min="0" className="w-full border rounded p-2 text-sm text-center" value={formData.rW} onChange={e => setFormData({...formData, rW: e.target.value})} /></div>
+                                                    <div><label className="text-xs font-bold text-blue-500 block mb-1 text-center">藍</label><input type="number" min="0" className="w-full border rounded border-blue-200 bg-blue-50 p-2 text-sm text-center text-blue-700" value={formData.rB} onChange={e => setFormData({...formData, rB: e.target.value})} /></div>
+                                                    <div><label className="text-xs font-bold text-yellow-600 block mb-1 text-center">黃</label><input type="number" min="0" className="w-full border rounded border-yellow-200 bg-yellow-50 p-2 text-sm text-center text-yellow-700" value={formData.rY} onChange={e => setFormData({...formData, rY: e.target.value})} /></div>
+                                                    <div><label className="text-xs font-bold text-red-500 block mb-1 text-center">紅</label><input type="number" min="0" className="w-full border rounded border-red-200 bg-red-50 p-2 text-sm text-center text-red-700" value={formData.rR} onChange={e => setFormData({...formData, rR: e.target.value})} /></div>
+                                                </div>
+                                            </div>
                                         </>
                                     ) : (
                                         <>
@@ -792,11 +871,7 @@
                                                         <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                         {formData.imageUrl ? (
                                                             <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
-                                                                <img 
-                                                                    src={formData.imageUrl} 
-                                                                    alt="Preview" 
-                                                                    className="w-full h-full object-contain p-2" 
-                                                                />
+                                                                <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-contain p-2" />
                                                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                                     <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
                                                                     <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
