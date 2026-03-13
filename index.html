@@ -72,7 +72,6 @@
             const [activeCategory, setActiveCategory] = useState("全部");
             const [searchTerm, setSearchTerm] = useState("");
             
-            // Modals & States
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [editingItem, setEditingItem] = useState(null);
             const [deleteId, setDeleteId] = useState(null);
@@ -82,13 +81,13 @@
             const [selectedIds, setSelectedIds] = useState(new Set());
             const [expandedFlowers, setExpandedFlowers] = useState(new Set());
 
-            // Flower Record Modal State
             const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
             const [recordTargetId, setRecordTargetId] = useState(null);
             const [recordFormData, setRecordFormData] = useState({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
 
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
+            const [importMode, setImportMode] = useState("1"); // 1: 一般, 2: 花朵紀錄
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
             const [selectedFileState, setSelectedFileState] = useState(null);
 
@@ -119,7 +118,6 @@
                 return () => unsubscribe();
             }, [isAdmin]);
 
-            // === General Handlers ===
             const toggleSelection = (id) => {
                 const newSelected = new Set(selectedIds);
                 if (newSelected.has(id)) newSelected.delete(id);
@@ -161,13 +159,9 @@
 
             const deleteOldImage = async (url) => {
                 if (!url) return;
-                try {
-                    const imageRef = ref(storage, url);
-                    await deleteObject(imageRef);
-                } catch (error) { console.log("Delete image ignored:", error); }
+                try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
-            // === Modals & Forms ===
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
@@ -204,7 +198,7 @@
                     }
 
                     const newItem = { ...formData, imageUrl: finalImageUrl, lastUpdated: timestamp };
-                    if (newItem.mainType === '花朵變異' && !newItem.records) newItem.records = []; // Ensure records array exists
+                    if (newItem.mainType === '花朵變異' && !newItem.records) newItem.records = []; 
 
                     if (editingItem) {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', editingItem.id), newItem, { merge: true });
@@ -213,10 +207,9 @@
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', newId), { ...newItem, id: newId });
                     }
                     setIsModalOpen(false);
-                } catch (error) { console.error("Save error:", error); alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
+                } catch (error) { alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
-            // === Flower Record Functions ===
             const handleOpenRecordModal = (flowerId) => {
                 setRecordTargetId(flowerId);
                 setRecordFormData({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
@@ -231,7 +224,7 @@
                     const flower = postcards.find(p => p.id === recordTargetId);
                     const currentRecords = flower.records || [];
                     const newRecord = {
-                        rId: Date.now().toString(),
+                        rId: Date.now().toString() + Math.random().toString().slice(2,5),
                         date: recordFormData.date,
                         method: recordFormData.method,
                         w: parseInt(recordFormData.w) || 0,
@@ -258,11 +251,9 @@
                 } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
-            // === Deletes ===
             const handleBatchDelete = async () => {
                 if (selectedIds.size === 0) return;
                 if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
-
                 setIsUploading(true);
                 try {
                     const promises = Array.from(selectedIds).map(async (id) => {
@@ -285,20 +276,17 @@
                         if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
                         setDeleteId(null); 
-                    } catch (error) { console.error("Delete error:", error); }
+                    } catch (error) {}
                 }
             };
 
             const handleGroupDelete = (groupKey, itemsInGroup) => {
                 if (!isAdmin) return;
-                const confirmMsg = `警告：您確定要刪除「${groupKey}」類別下的所有 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`;
-                if (confirm(confirmMsg)) {
-                    const idsToDelete = itemsInGroup.map(item => item.id);
+                if (confirm(`警告：確定要刪除「${groupKey}」下所有的 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`)) {
                     setIsUploading(true);
-                    const deletePromises = idsToDelete.map(async (id) => {
-                        const itemToDelete = postcards.find(p => p.id === id);
-                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
-                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
+                    const deletePromises = itemsInGroup.map(async (item) => {
+                        if (item.imageUrl) await deleteOldImage(item.imageUrl);
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', item.id));
                     });
                     Promise.all(deletePromises).then(() => {
                         alert("刪除成功！");
@@ -312,7 +300,6 @@
                 navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
             };
 
-            // === Export / Import ===
             const handleExportCSV = () => {
                 const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n5. 花朵變異明細\n\n請輸入對應數字 (1-5)：", "1");
                 if (!option) return; 
@@ -326,19 +313,14 @@
                     case "2": exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片'); fileNameSuffix = "明信片"; break;
                     case "3": exportData = postcards.filter(p => p.mainType === '純點'); fileNameSuffix = "純點"; break;
                     case "4": exportData = postcards.filter(p => p.mainType === '活動金盆'); fileNameSuffix = "活動金盆"; break;
-                    case "5": 
-                        exportData = postcards.filter(p => p.mainType === '花朵變異'); 
-                        fileNameSuffix = "花朵變異明細"; 
-                        isFlowerMode = true;
-                        break;
-                    default: alert("輸入代碼錯誤，請輸入 1 到 5 的數字。"); return;
+                    case "5": exportData = postcards.filter(p => p.mainType === '花朵變異'); fileNameSuffix = "花朵變異明細"; isFlowerMode = true; break;
+                    default: alert("輸入錯誤，已取消匯出。"); return;
                 }
 
                 if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
 
                 let csvContent = "";
                 if (isFlowerMode) {
-                    // Flatten flower records
                     const headers = ["花朵名稱", "紀錄ID", "日期", "種法", "白數量", "藍數量", "黃數量", "紅數量"];
                     let rows = [headers.join(",")];
                     exportData.forEach(flower => {
@@ -348,7 +330,6 @@
                     });
                     csvContent = rows.join("\n");
                 } else {
-                    // Standard export
                     const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "緯度", "經度", "最後更新時間", "圖片連結"];
                     csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
                 }
@@ -362,6 +343,17 @@
                 document.body.removeChild(link);
             };
 
+            // ★★★ 更新的匯入系統 (支援雙軌匯入) ★★★
+            const triggerImport = () => {
+                const opt = window.prompt("請選擇要匯入的資料格式：\n1. 一般資料 (明信片/純點/活動金盆)\n2. 花朵變異實驗明細\n\n請輸入對應數字 (1-2)：", "1");
+                if (opt === "1" || opt === "2") {
+                    setImportMode(opt.trim());
+                    csvInputRef.current?.click();
+                } else if (opt !== null) {
+                    alert("輸入錯誤，已取消匯入。");
+                }
+            };
+
             const handleImportCSV = (e) => {
                 const file = e.target.files[0];
                 if (!file || !isAdmin) return;
@@ -372,6 +364,7 @@
                     const rows = text.split('\n');
                     const dataRows = rows.slice(1).filter(row => row.trim() !== '');
                     setIsImporting(true);
+                    
                     try {
                         const parseCSVRow = (str) => {
                             let ret = [], val = '', inQ = false;
@@ -392,61 +385,88 @@
                             return ret;
                         };
 
-                        const promises = dataRows.map(row => {
-                            const cols = parseCSVRow(row);
-                            if (cols.length < 2) return null;
+                        if (importMode === "1") {
+                            // 匯入一般資料
+                            const promises = dataRows.map(row => {
+                                const cols = parseCSVRow(row);
+                                if (cols.length < 2) return null;
+                                const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                                let importedName = cols[4];
+                                if (!importedName && cols[6]) importedName = cols[6];
+                                const item = {
+                                    id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
+                                    name: importedName, type: cols[5] || '', location: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
+                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || ''
+                                };
+                                return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
+                            }).filter(p => p !== null);
+                            await Promise.all(promises);
+                            alert(`匯入完成！成功匯入 ${promises.length} 筆一般資料。`);
+                        } 
+                        else if (importMode === "2") {
+                            // ★ 匯入花朵變異明細 (花朵名稱,日期,種法,白,藍,黃,紅)
+                            const flowerUpdates = {};
+                            dataRows.forEach(row => {
+                                const cols = parseCSVRow(row);
+                                if (cols.length < 7) return;
+                                const name = cols[0];
+                                const date = cols[1] || new Date().toISOString().slice(0, 10);
+                                const method = cols[2];
+                                const w = parseInt(cols[3]) || 0;
+                                const b = parseInt(cols[4]) || 0;
+                                const y = parseInt(cols[5]) || 0;
+                                const r = parseInt(cols[6]) || 0;
+                                
+                                if (!name || !method) return;
+                                if (!flowerUpdates[name]) flowerUpdates[name] = [];
+                                flowerUpdates[name].push({ rId: Date.now().toString() + Math.random().toString().slice(2,6), date, method, w, b, y, r });
+                            });
 
-                            const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
-                            let importedName = cols[4];
-                            if (!importedName && cols[6]) importedName = cols[6];
+                            // 將整理好的明細更新到對應的花朵中 (找不到就自動建立)
+                            const promises = Object.keys(flowerUpdates).map(async (name) => {
+                                const existingFlower = postcards.find(p => p.mainType === '花朵變異' && p.name === name);
+                                if (existingFlower) {
+                                    const currentRecords = existingFlower.records || [];
+                                    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', existingFlower.id), {
+                                        records: [...currentRecords, ...flowerUpdates[name]],
+                                        lastUpdated: new Date().toISOString()
+                                    }, { merge: true });
+                                } else {
+                                    // 找不到對應名字的花，自動新建一張乾淨的卡片
+                                    const id = Date.now().toString() + Math.random().toString().slice(2,5);
+                                    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), {
+                                        id, mainType: '花朵變異', name: name, category: '', series: '', type: '', location: '', lat: '', lng: '',
+                                        records: flowerUpdates[name],
+                                        lastUpdated: new Date().toISOString(), imageUrl: ''
+                                    });
+                                }
+                            });
+                            await Promise.all(promises);
+                            alert(`花朵紀錄匯入完成！更新了 ${promises.length} 種花朵的資料。`);
+                        }
 
-                            const item = {
-                                id: id,
-                                mainType: cols[1] || '明信片',
-                                category: cols[2] || '',
-                                series: cols[3] || '',
-                                name: importedName,
-                                type: cols[5] || '',
-                                location: cols[6] || '',
-                                lat: cols[7] || '',
-                                lng: cols[8] || '',
-                                lastUpdated: cols[9] || new Date().toISOString(),
-                                imageUrl: cols[10] || ''
-                            };
-                            return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
-                        }).filter(p => p !== null);
-
-                        await Promise.all(promises);
-                        alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
-                    } catch (error) { alert("匯入失敗: " + error.message); } finally { setIsImporting(false); e.target.value = ''; }
+                    } catch (error) { 
+                        alert("匯入失敗，請確認格式是否正確。錯誤訊息: " + error.message); 
+                    } finally { 
+                        setIsImporting(false); e.target.value = ''; 
+                    }
                 };
                 reader.readAsText(file);
             };
 
-            // === Data Prep ===
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category))].sort();
             const categories = ["全部", ...availableCategories];
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
-            
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
 
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
-                
                 const s = searchTerm.toLowerCase();
-                const matchesSearch = 
-                    (item.name || "").toLowerCase().includes(s) || 
-                    (item.location || "").toLowerCase().includes(s) || 
-                    (item.type || "").toLowerCase().includes(s) ||
-                    (item.series || "").toLowerCase().includes(s);
-
-                if (mainTab === '明信片') {
-                    return (activeCategory === "全部" || item.category === activeCategory) && matchesSearch;
-                } else {
-                    return matchesSearch;
-                }
+                const matchesSearch = (item.name || "").toLowerCase().includes(s) || (item.location || "").toLowerCase().includes(s) || (item.type || "").toLowerCase().includes(s) || (item.series || "").toLowerCase().includes(s);
+                if (mainTab === '明信片') return (activeCategory === "全部" || item.category === activeCategory) && matchesSearch;
+                else return matchesSearch;
             });
 
             const groupedPostcards = displayedItems.reduce((groups, item) => {
@@ -456,7 +476,6 @@
                 return groups;
             }, {});
 
-            // Helper to render colored bar
             const renderProgressBar = (w, b, y, r) => {
                 const total = w + b + y + r;
                 if (total === 0) return <div className="h-3 w-full bg-slate-200 rounded-full my-2"></div>;
@@ -474,9 +493,9 @@
                 <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
                     <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
+                            <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標與花朵圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
-                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}><Icon path={ICONS.Lock} /></button>
+                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
                                 <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
                                 {isAdmin && (
                                     <>
@@ -484,7 +503,7 @@
                                             <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
                                         )}
                                         <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
-                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
+                                        <button onClick={triggerImport} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
                                         <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
                                     </>
                                 )}
@@ -508,7 +527,6 @@
                                     <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
                                 </div>
                                 
-                                {/* 渲染：明信片 / 純點 / 活動金盆 */}
                                 {mainTab !== '花朵變異' && (
                                     <div className="space-y-8">
                                         {Object.entries(groupedPostcards).map(([groupKey, items]) => (
@@ -516,7 +534,7 @@
                                                 <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
                                                     <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
                                                     {isAdmin && (
-                                                        <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors" title={`刪除所有「${groupKey}」資料`}><Icon path={ICONS.Trash2} /></button>
+                                                        <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors"><Icon path={ICONS.Trash2} /></button>
                                                     )}
                                                 </div>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -572,7 +590,6 @@
                                     </div>
                                 )}
 
-                                {/* ★ 渲染：花朵變異 (圖鑑模式) ★ */}
                                 {mainTab === '花朵變異' && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {displayedItems.map(item => {
@@ -590,7 +607,6 @@
 
                                             const isExpanded = expandedFlowers.has(item.id);
 
-                                            // 將紀錄按「種法」分組
                                             const groupedByMethod = records.reduce((acc, r) => {
                                                 if (!acc[r.method]) acc[r.method] = { w:0, b:0, y:0, r:0, count:0, list:[] };
                                                 acc[r.method].w += r.w; acc[r.method].b += r.b; acc[r.method].y += r.y; acc[r.method].r += r.r;
@@ -601,7 +617,6 @@
 
                                             return (
                                                 <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
-                                                    {/* 花朵封面圖 */}
                                                     {item.imageUrl ? (
                                                         <div className="h-48 w-full bg-slate-100 relative group">
                                                             <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
@@ -630,7 +645,6 @@
                                                             <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full">總樣本: {total}</span>
                                                         </div>
                                                         
-                                                        {/* 總機率條 */}
                                                         {renderProgressBar(totalW, totalB, totalY, totalR)}
                                                         <div className="flex justify-between text-[11px] font-bold text-slate-500 mt-1">
                                                             <span className="text-slate-400">⚪ {pW}%</span>
@@ -639,18 +653,12 @@
                                                             <span className="text-red-500">🔴 {pR}%</span>
                                                         </div>
 
-                                                        {/* 展開/收合按鈕 */}
-                                                        <button 
-                                                            onClick={() => toggleExpandFlower(item.id)}
-                                                            className="w-full mt-4 py-2 border border-pink-200 text-pink-600 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors"
-                                                        >
+                                                        <button onClick={() => toggleExpandFlower(item.id)} className="w-full mt-4 py-2 border border-pink-200 text-pink-600 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors">
                                                             {isExpanded ? <><Icon path={ICONS.ChevronUp}/> 收起詳細數據</> : <><Icon path={ICONS.ChevronDown}/> 展開詳細數據</>}
                                                         </button>
 
-                                                        {/* 展開後的內容 */}
                                                         {isExpanded && (
                                                             <div className="mt-4 pt-4 border-t border-slate-100 space-y-5">
-                                                                {/* 依種法分類顯示 */}
                                                                 {Object.keys(groupedByMethod).length === 0 ? (
                                                                     <p className="text-center text-sm text-slate-400 py-4">目前尚無實驗紀錄</p>
                                                                 ) : (
@@ -660,11 +668,10 @@
                                                                             <div key={method} className="bg-slate-50 rounded-lg p-3 border border-slate-100">
                                                                                 <div className="flex justify-between items-center mb-1">
                                                                                     <span className="text-sm font-bold text-slate-700 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200">🏷️ {method}</span>
-                                                                                    <span className="text-[10px] text-slate-500">樣本: {stTotal} ({stats.count}筆)</span>
+                                                                                    <span className="text-[10px] text-slate-500">樣本: {stTotal}</span>
                                                                                 </div>
                                                                                 {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
                                                                                 
-                                                                                {/* Admin 刪除歷史紀錄的小清單 */}
                                                                                 {isAdmin && (
                                                                                     <div className="mt-2 pt-2 border-t border-slate-200/60 space-y-1">
                                                                                         {stats.list.map(r => (
@@ -680,12 +687,8 @@
                                                                     })
                                                                 )}
                                                                 
-                                                                {/* 新增紀錄按鈕 */}
                                                                 {isAdmin && (
-                                                                    <button 
-                                                                        onClick={() => handleOpenRecordModal(item.id)}
-                                                                        className="w-full py-2 bg-pink-100 text-pink-700 font-bold text-sm rounded-lg flex justify-center items-center gap-1 hover:bg-pink-200 transition-colors"
-                                                                    >
+                                                                    <button onClick={() => handleOpenRecordModal(item.id)} className="w-full py-2 bg-pink-100 text-pink-700 font-bold text-sm rounded-lg flex justify-center items-center gap-1 hover:bg-pink-200 transition-colors">
                                                                         <Icon path={ICONS.Plus}/> 新增實驗紀錄
                                                                     </button>
                                                                 )}
@@ -701,7 +704,6 @@
                         )}
                     </main>
 
-                    {/* 刪除確認 */}
                     {deleteId && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
@@ -712,7 +714,6 @@
                         </div>
                     )}
 
-                    {/* 花朵實驗紀錄專用 Modal */}
                     {isRecordModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
@@ -732,7 +733,6 @@
                         </div>
                     )}
 
-                    {/* 主資料編輯 Modal (明信片/純點/活動金盆/花朵變異 共通) */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
@@ -747,7 +747,6 @@
                                         </div>
                                     )}
                                     
-                                    {/* 花朵變異專屬表單（只顯示名字與圖片） */}
                                     {formData.mainType === '花朵變異' ? (
                                         <>
                                             <div className="space-y-2">
@@ -766,7 +765,6 @@
                                             <div><label className="text-xs font-bold text-slate-500">花朵名稱</label><input required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
-                                        /* 舊的明信片/純點表單邏輯 */
                                         <>
                                             {formData.mainType === '明信片' ? (
                                                 <>
