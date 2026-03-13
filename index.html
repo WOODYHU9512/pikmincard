@@ -88,7 +88,8 @@
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             const [importMode, setImportMode] = useState("1"); 
-            const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
+            // ★ 新增 imgPos 欄位，預設 50% (置中)
+            const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "", imgPos: 50 });
             const [selectedFileState, setSelectedFileState] = useState(null);
 
             useEffect(() => {
@@ -169,11 +170,12 @@
                     if ((item.mainType === '純點' || item.mainType === '活動金盆') && !editLocation && item.name) {
                         editLocation = item.name;
                     }
-                    setFormData({ imageUrl: "", mainType: "明信片", ...item, location: editLocation || "" });
+                    // ★ 讀取圖片的 object-position，如果沒存過預設給 50
+                    setFormData({ imageUrl: "", imgPos: 50, mainType: "明信片", ...item, location: editLocation || "" });
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
-                    setFormData({ mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "" });
+                    setFormData({ mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", imgPos: 50 });
                     setSelectedFileState(null);
                 }
                 setIsModalOpen(true);
@@ -394,7 +396,7 @@
                                 const item = {
                                     id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
                                     name: importedName, type: cols[5] || '', location: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
-                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || ''
+                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || '', imgPos: 50
                                 };
                                 return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
                             }).filter(p => p !== null);
@@ -432,7 +434,7 @@
                                     return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), {
                                         id, mainType: '花朵變異', name: name, category: '', series: '', type: '', location: '', lat: '', lng: '',
                                         records: flowerUpdates[name],
-                                        lastUpdated: new Date().toISOString(), imageUrl: ''
+                                        lastUpdated: new Date().toISOString(), imageUrl: '', imgPos: 50
                                     });
                                 }
                             });
@@ -471,7 +473,6 @@
                 return groups;
             }, {});
 
-            // ★★★ 將高度從 h-3 放大為 h-4，讓進度條更粗更清晰 ★★★
             const renderProgressBar = (w, b, y, r) => {
                 const total = w + b + y + r;
                 if (total === 0) return <div className="h-4 w-full bg-slate-200 rounded-full my-2"></div>;
@@ -547,7 +548,8 @@
                                                             )}
                                                             {mainTab === '明信片' && (
                                                                 <>
-                                                                    {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /></div>)}
+                                                                    {/* ★ 顯示時套用 imgPos ★ */}
+                                                                    {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" style={{ objectPosition: `50% ${item.imgPos ?? 50}%` }} /></div>)}
                                                                     <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
                                                                         <div className="flex items-center gap-2 mb-1">
                                                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
@@ -586,7 +588,6 @@
                                     </div>
                                 )}
 
-                                {/* ★ 渲染：花朵變異 (圖鑑模式) ★ */}
                                 {mainTab === '花朵變異' && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         {displayedItems.map(item => {
@@ -616,7 +617,8 @@
                                                 <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
                                                     {item.imageUrl ? (
                                                         <div className="h-48 w-full bg-slate-100 relative group">
-                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                                                            {/* ★ 顯示時套用 imgPos ★ */}
+                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" style={{ objectPosition: `50% ${item.imgPos ?? 50}%` }} />
                                                             {isAdmin && (
                                                                 <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <button onClick={() => handleOpenModal(item)} className="p-1.5 bg-white/90 backdrop-blur rounded text-slate-600 hover:text-blue-500 shadow"><Icon path={ICONS.Edit2} /></button>
@@ -637,14 +639,12 @@
                                                     )}
                                                     
                                                     <div className="p-5">
-                                                        {/* ★★★ 放大標題與總樣本標籤 ★★★ */}
                                                         <div className="flex justify-between items-end mb-3">
                                                             <h3 className="text-2xl font-bold text-slate-800">{item.name}</h3>
                                                             <span className="text-sm font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">總樣本: {total}</span>
                                                         </div>
                                                         
                                                         {renderProgressBar(totalW, totalB, totalY, totalR)}
-                                                        {/* ★★★ 放大總機率字體 ★★★ */}
                                                         <div className="flex justify-between text-sm font-bold text-slate-600 mt-2">
                                                             <span className="text-slate-500">⚪ {pW}%</span>
                                                             <span className="text-blue-500">🔵 {pB}%</span>
@@ -652,7 +652,6 @@
                                                             <span className="text-red-500">🔴 {pR}%</span>
                                                         </div>
 
-                                                        {/* ★★★ 放大展開按鈕 ★★★ */}
                                                         <button onClick={() => toggleExpandFlower(item.id)} className="w-full mt-5 py-2.5 border border-pink-200 text-pink-600 rounded-lg text-base font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors">
                                                             {isExpanded ? <><Icon path={ICONS.ChevronUp}/> 收起詳細數據</> : <><Icon path={ICONS.ChevronDown}/> 展開詳細數據</>}
                                                         </button>
@@ -666,14 +665,12 @@
                                                                         const stTotal = stats.w + stats.b + stats.y + stats.r;
                                                                         return (
                                                                             <div key={method} className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-                                                                                {/* ★★★ 放大種法標籤與數量 ★★★ */}
                                                                                 <div className="flex justify-between items-center mb-2">
                                                                                     <span className="text-base font-bold text-slate-700 bg-white px-2.5 py-1 rounded shadow-sm border border-slate-200">🏷️ {method}</span>
                                                                                     <span className="text-sm font-bold text-slate-500">樣本: {stTotal} ({stats.count}筆)</span>
                                                                                 </div>
                                                                                 {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
                                                                                 
-                                                                                {/* ★★★ 新增：各別種法的機率顯示 ★★★ */}
                                                                                 <div className="flex justify-between text-xs font-bold text-slate-500 mt-1 mb-3">
                                                                                     <span>⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(0) : 0}%</span>
                                                                                     <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(0) : 0}%</span>
@@ -696,7 +693,6 @@
                                                                     })
                                                                 )}
                                                                 
-                                                                {/* ★★★ 放大新增紀錄按鈕 ★★★ */}
                                                                 {isAdmin && (
                                                                     <button onClick={() => handleOpenRecordModal(item.id)} className="w-full py-3 bg-pink-100 text-pink-700 font-bold text-base rounded-lg flex justify-center items-center gap-1 hover:bg-pink-200 transition-colors shadow-sm">
                                                                         <Icon path={ICONS.Plus}/> 新增實驗紀錄
@@ -724,13 +720,11 @@
                         </div>
                     )}
 
-                    {/* 花朵實驗紀錄專用 Modal */}
                     {isRecordModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
                                 <div className="px-6 py-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold text-pink-600">新增實驗紀錄</h3><button onClick={() => setIsRecordModalOpen(false)}><Icon path={ICONS.X} /></button></div>
                                 <form onSubmit={handleSaveRecord} className="p-6 space-y-4">
-                                    {/* ★★★ 放大 Modal 內的標籤字體 ★★★ */}
                                     <div><label className="text-sm font-bold text-slate-500 mb-1 block">日期</label><input type="date" required className="w-full border rounded p-2 text-base" value={recordFormData.date} onChange={e => setRecordFormData({ ...recordFormData, date: e.target.value })} /></div>
                                     <div><label className="text-sm font-bold text-slate-500 mb-1 block">種法 (Tag)</label><input type="text" placeholder="例如: 黃藍油菜+櫻花" required className="w-full border rounded p-2 text-base" value={recordFormData.method} onChange={e => setRecordFormData({ ...recordFormData, method: e.target.value })} /></div>
                                     <div className="grid grid-cols-4 gap-3 mt-2">
@@ -745,7 +739,6 @@
                         </div>
                     )}
 
-                    {/* 主資料編輯 Modal (明信片/純點/活動金盆/花朵變異 共通) */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
@@ -767,13 +760,30 @@
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48">
-                                                        <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                                                        {/* ★ 套用 imgPos ★ */}
+                                                        <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" style={{ objectPosition: `50% ${formData.imgPos ?? 50}%` }} />
                                                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                             <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
                                                             <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
                                                         </div>
                                                     </div>
                                                 ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-pink-400 hover:text-pink-600 hover:bg-pink-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳花朵照</span></button>)}
+                                                
+                                                {/* ★ 新增：調整圖片上下位置的滑桿 ★ */}
+                                                {formData.imageUrl && (
+                                                    <div className="pt-2">
+                                                        <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                                            <span>調整圖片顯示位置 (上至下)</span>
+                                                            <span>{formData.imgPos}%</span>
+                                                        </div>
+                                                        <input 
+                                                            type="range" min="0" max="100" 
+                                                            value={formData.imgPos || 50} 
+                                                            onChange={(e) => setFormData({...formData, imgPos: e.target.value})}
+                                                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                             <div><label className="text-xs font-bold text-slate-500">花朵名稱</label><input required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
@@ -786,13 +796,30 @@
                                                         <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                         {formData.imageUrl ? (
                                                             <div className="relative rounded-lg overflow-hidden border group h-48">
-                                                                <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                                                                {/* ★ 套用 imgPos ★ */}
+                                                                <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" style={{ objectPosition: `50% ${formData.imgPos ?? 50}%` }} />
                                                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                                     <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
                                                                     <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
                                                                 </div>
                                                             </div>
                                                         ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
+                                                        
+                                                        {/* ★ 新增：調整圖片上下位置的滑桿 ★ */}
+                                                        {formData.imageUrl && (
+                                                            <div className="pt-2">
+                                                                <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                                                    <span>調整圖片顯示位置 (上至下)</span>
+                                                                    <span>{formData.imgPos}%</span>
+                                                                </div>
+                                                                <input 
+                                                                    type="range" min="0" max="100" 
+                                                                    value={formData.imgPos || 50} 
+                                                                    onChange={(e) => setFormData({...formData, imgPos: e.target.value})}
+                                                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                                                                />
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-4">
                                                         <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
