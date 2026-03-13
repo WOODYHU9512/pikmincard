@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標圖鑑</title>
+    <title>Pikmin 座標與花朵圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -34,6 +34,7 @@
         const db = getFirestore(app);
         const storage = getStorage(app);
         const appId = 'pikmin-public-v1';
+
         const ADMIN_EMAIL = "admin@pikmin.map"; 
 
         const Icon = ({ path }) => (
@@ -57,20 +58,21 @@
             AlertTriangle: <Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" x2="12" y1="9" y2="13" /><line x1="12" x2="12.01" y1="17" y2="17" /></Fragment>,
             X: <path d="M18 6 6 18 M6 6l12 12" />,
             Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
-            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
+            ChevronDown: <polyline points="6 9 12 15 18 9" />,
+            ChevronUp: <polyline points="18 15 12 9 6 15" />
         };
-
-        const INITIAL_SEEDS = [];
 
         const App = () => {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
             const [postcards, setPostcards] = useState([]);
             const [loading, setLoading] = useState(true);
-            const hasInitializedSeeds = useRef(false);
             const [mainTab, setMainTab] = useState('明信片');
             const [activeCategory, setActiveCategory] = useState("全部");
             const [searchTerm, setSearchTerm] = useState("");
+            
+            // Modals & States
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [editingItem, setEditingItem] = useState(null);
             const [deleteId, setDeleteId] = useState(null);
@@ -78,10 +80,17 @@
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
             const [selectedIds, setSelectedIds] = useState(new Set());
+            const [expandedFlowers, setExpandedFlowers] = useState(new Set());
+
+            // Flower Record Modal State
+            const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+            const [recordTargetId, setRecordTargetId] = useState(null);
+            const [recordFormData, setRecordFormData] = useState({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
 
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
+            const [selectedFileState, setSelectedFileState] = useState(null);
 
             useEffect(() => {
                 onAuthStateChanged(auth, (u) => {
@@ -110,14 +119,19 @@
                 return () => unsubscribe();
             }, [isAdmin]);
 
+            // === General Handlers ===
             const toggleSelection = (id) => {
                 const newSelected = new Set(selectedIds);
-                if (newSelected.has(id)) {
-                    newSelected.delete(id);
-                } else {
-                    newSelected.add(id);
-                }
+                if (newSelected.has(id)) newSelected.delete(id);
+                else newSelected.add(id);
                 setSelectedIds(newSelected);
+            };
+
+            const toggleExpandFlower = (id) => {
+                const next = new Set(expandedFlowers);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                setExpandedFlowers(next);
             };
 
             const handleAdminLogin = async () => {
@@ -131,9 +145,7 @@
                     try {
                         await signInWithEmailAndPassword(auth, email, password);
                         alert("登入成功！編輯模式已開啟。");
-                    } catch (error) {
-                        alert("登入失敗: " + error.message);
-                    }
+                    } catch (error) { alert("登入失敗: " + error.message); }
                 }
             };
 
@@ -147,6 +159,15 @@
             };
             const handleRemoveImage = () => { setFormData(prev => ({ ...prev, imageUrl: "" })); setSelectedFileState(null); };
 
+            const deleteOldImage = async (url) => {
+                if (!url) return;
+                try {
+                    const imageRef = ref(storage, url);
+                    await deleteObject(imageRef);
+                } catch (error) { console.log("Delete image ignored:", error); }
+            };
+
+            // === Modals & Forms ===
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
@@ -162,14 +183,6 @@
                     setSelectedFileState(null);
                 }
                 setIsModalOpen(true);
-            };
-
-            const deleteOldImage = async (url) => {
-                if (!url) return;
-                try {
-                    const imageRef = ref(storage, url);
-                    await deleteObject(imageRef);
-                } catch (error) { console.log("Delete image ignored:", error); }
             };
 
             const handleSubmit = async (e) => {
@@ -191,6 +204,8 @@
                     }
 
                     const newItem = { ...formData, imageUrl: finalImageUrl, lastUpdated: timestamp };
+                    if (newItem.mainType === '花朵變異' && !newItem.records) newItem.records = []; // Ensure records array exists
+
                     if (editingItem) {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', editingItem.id), newItem, { merge: true });
                     } else {
@@ -201,6 +216,49 @@
                 } catch (error) { console.error("Save error:", error); alert("儲存失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
+            // === Flower Record Functions ===
+            const handleOpenRecordModal = (flowerId) => {
+                setRecordTargetId(flowerId);
+                setRecordFormData({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
+                setIsRecordModalOpen(true);
+            };
+
+            const handleSaveRecord = async (e) => {
+                e.preventDefault();
+                if (!isAdmin || !recordTargetId) return;
+                setIsUploading(true);
+                try {
+                    const flower = postcards.find(p => p.id === recordTargetId);
+                    const currentRecords = flower.records || [];
+                    const newRecord = {
+                        rId: Date.now().toString(),
+                        date: recordFormData.date,
+                        method: recordFormData.method,
+                        w: parseInt(recordFormData.w) || 0,
+                        b: parseInt(recordFormData.b) || 0,
+                        y: parseInt(recordFormData.y) || 0,
+                        r: parseInt(recordFormData.r) || 0,
+                    };
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', flower.id), {
+                        records: [...currentRecords, newRecord],
+                        lastUpdated: new Date().toISOString()
+                    }, { merge: true });
+                    setIsRecordModalOpen(false);
+                } catch (error) { alert("儲存紀錄失敗: " + error.message); } finally { setIsUploading(false); }
+            };
+
+            const handleDeleteRecord = async (flowerId, recordId) => {
+                if (!isAdmin) return;
+                if (!confirm("確定要刪除這筆實驗紀錄嗎？")) return;
+                setIsUploading(true);
+                try {
+                    const flower = postcards.find(p => p.id === flowerId);
+                    const newRecords = (flower.records || []).filter(r => r.rId !== recordId);
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', flowerId), { records: newRecords }, { merge: true });
+                } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
+            };
+
+            // === Deletes ===
             const handleBatchDelete = async () => {
                 if (selectedIds.size === 0) return;
                 if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
@@ -214,16 +272,10 @@
                             await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
                         }
                     });
-                    
                     await Promise.all(promises);
                     setSelectedIds(new Set());
                     alert("批量刪除完成！");
-                } catch (error) {
-                    console.error("Batch delete error:", error);
-                    alert("刪除失敗: " + error.message);
-                } finally {
-                    setIsUploading(false);
-                }
+                } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
             const confirmDelete = async () => {
@@ -252,11 +304,7 @@
                         alert("刪除成功！");
                         setSelectedIds(new Set());
                         setIsUploading(false);
-                    }).catch((error) => {
-                        console.error("Delete error:", error);
-                        alert("刪除失敗: " + error.message);
-                        setIsUploading(false);
-                    });
+                    }).catch((error) => { alert("刪除失敗: " + error.message); setIsUploading(false); });
                 }
             };
 
@@ -264,44 +312,47 @@
                 navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
             };
 
-            // ★★★ 新增的選擇性匯出功能 ★★★
+            // === Export / Import ===
             const handleExportCSV = () => {
-                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n\n請輸入對應數字 (1-4)：", "1");
-                
-                if (!option) return; // 使用者按了取消
+                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n5. 花朵變異明細\n\n請輸入對應數字 (1-5)：", "1");
+                if (!option) return; 
 
                 let exportData = [];
                 let fileNameSuffix = "";
+                let isFlowerMode = false;
 
                 switch (option.trim()) {
-                    case "1":
-                        exportData = postcards;
-                        fileNameSuffix = "全部";
+                    case "1": exportData = postcards; fileNameSuffix = "全部"; break;
+                    case "2": exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片'); fileNameSuffix = "明信片"; break;
+                    case "3": exportData = postcards.filter(p => p.mainType === '純點'); fileNameSuffix = "純點"; break;
+                    case "4": exportData = postcards.filter(p => p.mainType === '活動金盆'); fileNameSuffix = "活動金盆"; break;
+                    case "5": 
+                        exportData = postcards.filter(p => p.mainType === '花朵變異'); 
+                        fileNameSuffix = "花朵變異明細"; 
+                        isFlowerMode = true;
                         break;
-                    case "2":
-                        exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片');
-                        fileNameSuffix = "明信片";
-                        break;
-                    case "3":
-                        exportData = postcards.filter(p => p.mainType === '純點');
-                        fileNameSuffix = "純點";
-                        break;
-                    case "4":
-                        exportData = postcards.filter(p => p.mainType === '活動金盆');
-                        fileNameSuffix = "活動金盆";
-                        break;
-                    default:
-                        alert("輸入代碼錯誤，請輸入 1 到 4 的數字，已取消匯出。");
-                        return;
+                    default: alert("輸入代碼錯誤，請輸入 1 到 5 的數字。"); return;
                 }
 
-                if (exportData.length === 0) {
-                    alert(`目前「${fileNameSuffix}」沒有任何資料可供匯出。`);
-                    return;
+                if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
+
+                let csvContent = "";
+                if (isFlowerMode) {
+                    // Flatten flower records
+                    const headers = ["花朵名稱", "紀錄ID", "日期", "種法", "白數量", "藍數量", "黃數量", "紅數量"];
+                    let rows = [headers.join(",")];
+                    exportData.forEach(flower => {
+                        (flower.records || []).forEach(r => {
+                            rows.push([`"${flower.name}"`, r.rId, r.date, `"${r.method}"`, r.w, r.b, r.y, r.r].join(","));
+                        });
+                    });
+                    csvContent = rows.join("\n");
+                } else {
+                    // Standard export
+                    const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "緯度", "經度", "最後更新時間", "圖片連結"];
+                    csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
                 }
 
-                const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "緯度", "經度", "最後更新時間", "圖片連結"];
-                const csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
                 const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(blob);
@@ -347,9 +398,7 @@
 
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             let importedName = cols[4];
-                            if (!importedName && cols[6]) {
-                                importedName = cols[6];
-                            }
+                            if (!importedName && cols[6]) importedName = cols[6];
 
                             const item = {
                                 id: id,
@@ -369,17 +418,12 @@
 
                         await Promise.all(promises);
                         alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
-                    } catch (error) { 
-                        console.error(error);
-                        alert("匯入失敗，請確認格式。錯誤訊息: " + error.message); 
-                    } finally { 
-                        setIsImporting(false); 
-                        e.target.value = ''; 
-                    }
+                    } catch (error) { alert("匯入失敗: " + error.message); } finally { setIsImporting(false); e.target.value = ''; }
                 };
                 reader.readAsText(file);
             };
 
+            // === Data Prep ===
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category))].sort();
             const categories = ["全部", ...availableCategories];
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
@@ -412,7 +456,19 @@
                 return groups;
             }, {});
 
-            const [selectedFileState, setSelectedFileState] = useState(null);
+            // Helper to render colored bar
+            const renderProgressBar = (w, b, y, r) => {
+                const total = w + b + y + r;
+                if (total === 0) return <div className="h-3 w-full bg-slate-200 rounded-full my-2"></div>;
+                return (
+                    <div className="h-3 w-full flex rounded-full overflow-hidden my-2 shadow-inner">
+                        {w > 0 && <div style={{width: `${(w/total)*100}%`}} className="bg-slate-300" title={`白: ${w}`}></div>}
+                        {b > 0 && <div style={{width: `${(b/total)*100}%`}} className="bg-blue-400" title={`藍: ${b}`}></div>}
+                        {y > 0 && <div style={{width: `${(y/total)*100}%`}} className="bg-yellow-400" title={`黃: ${y}`}></div>}
+                        {r > 0 && <div style={{width: `${(r/total)*100}%`}} className="bg-red-400" title={`紅: ${r}`}></div>}
+                    </div>
+                );
+            };
 
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
@@ -420,24 +476,15 @@
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
-                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}>
-                                    <Icon path={ICONS.Lock} />
-                                </button>
-                                
+                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`} title={isAdmin ? "登出管理員" : "管理員登入"}><Icon path={ICONS.Lock} /></button>
                                 <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
-                                
                                 {isAdmin && (
                                     <>
                                         {selectedIds.size > 0 && (
-                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse">
-                                                <Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})
-                                            </button>
+                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
                                         )}
-
                                         <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
-                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
-                                            {isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}
-                                        </button>
+                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
                                         <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
                                     </>
                                 )}
@@ -448,10 +495,11 @@
                         {loading && <div className="text-center py-10">載入中...</div>}
                         {!loading && (
                             <>
-                                <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
+                                <div className="flex border-b border-slate-200 mb-6 overflow-x-auto scrollbar-hide">
                                     <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
                                     <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
                                     <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
+                                    <button onClick={() => setMainTab('花朵變異')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '花朵變異' ? 'border-pink-500 text-pink-600' : 'border-transparent text-slate-500'}`}>花朵變異</button>
                                 </div>
                                 <div className="flex flex-col md:flex-row gap-4 mb-8 justify-between">
                                     {mainTab === '明信片' && (
@@ -459,99 +507,201 @@
                                     )}
                                     <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
                                 </div>
-                                <div className="space-y-8">
-                                    {Object.entries(groupedPostcards).map(([groupKey, items]) => (
-                                        <section key={groupKey}>
-                                            <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
-                                                <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
-                                                {isAdmin && (
-                                                    <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors" title={`刪除所有「${groupKey}」資料`}>
-                                                        <Icon path={ICONS.Trash2} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {items.map(item => (
-                                                    <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
-                                                        {isAdmin && (
-                                                            <>
-                                                                <div className="absolute top-4 left-4 z-10">
-                                                                    <input 
-                                                                        type="checkbox" 
-                                                                        checked={selectedIds.has(item.id)} 
-                                                                        onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}}
-                                                                        className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm"
-                                                                    />
-                                                                </div>
+                                
+                                {/* 渲染：明信片 / 純點 / 活動金盆 */}
+                                {mainTab !== '花朵變異' && (
+                                    <div className="space-y-8">
+                                        {Object.entries(groupedPostcards).map(([groupKey, items]) => (
+                                            <section key={groupKey}>
+                                                <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                    <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
+                                                    {isAdmin && (
+                                                        <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors" title={`刪除所有「${groupKey}」資料`}><Icon path={ICONS.Trash2} /></button>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                    {items.map(item => (
+                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
+                                                            {isAdmin && (
+                                                                <>
+                                                                    <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
+                                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                            {mainTab === '明信片' && (
+                                                                <>
+                                                                    {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /></div>)}
+                                                                    <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
+                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                                item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                                item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
+                                                                                item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
+                                                                            }`}>{item.type}</span>
+                                                                            <span className="text-xs text-slate-400">{item.category}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                            {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            {mainTab === '活動金盆' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            
+                                                            <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">{mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}</h3>
 
-                                                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                        {mainTab === '明信片' && (
-                                                            <>
-                                                                {item.imageUrl && (<div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 overflow-hidden relative rounded-t-xl"><img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /></div>)}
-                                                                <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
-                                                                    <div className="flex items-center gap-2 mb-1">
-                                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                                                            item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
-                                                                            item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
-                                                                            item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' :
-                                                                            'bg-amber-100 text-amber-800'
-                                                                        }`}>
-                                                                            {item.type}
-                                                                        </span>
-                                                                        <span className="text-xs text-slate-400">{item.category}</span>
+                                                            <div className="space-y-3 text-sm text-slate-600">
+                                                                {mainTab === '明信片' && (<div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>)}
+                                                                <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
+                                                                    <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="border-t border-slate-200/50 pt-2 mt-1">
+                                                                        <button onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors">
+                                                                            <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
+                                                                        </button>
                                                                     </div>
                                                                 </div>
-                                                            </>
-                                                        )}
-                                                        {mainTab === '純點' && (
-                                                            <div className="mb-3">
-                                                                <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span>
-                                                                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span>
+                                                                <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
                                                             </div>
-                                                        )}
-                                                        {mainTab === '活動金盆' && (
-                                                            <div className="mb-3">
-                                                                <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span>
-                                                                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span>
-                                                            </div>
-                                                        )}
-                                                        
-                                                        <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">
-                                                            {mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}
-                                                        </h3>
-
-                                                        <div className="space-y-3 text-sm text-slate-600">
-                                                            {mainTab === '明信片' && (
-                                                                <div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>
-                                                            )}
-                                                            <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
-                                                                <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
-                                                                <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
-                                                                <div className="border-t border-slate-200/50 pt-2 mt-1">
-                                                                    <button 
-                                                                        onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} 
-                                                                        className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors"
-                                                                    >
-                                                                        <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                            <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
                                                         </div>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* ★ 渲染：花朵變異 (圖鑑模式) ★ */}
+                                {mainTab === '花朵變異' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        {displayedItems.map(item => {
+                                            const records = item.records || [];
+                                            const totalW = records.reduce((s, r) => s + r.w, 0);
+                                            const totalB = records.reduce((s, r) => s + r.b, 0);
+                                            const totalY = records.reduce((s, r) => s + r.y, 0);
+                                            const totalR = records.reduce((s, r) => s + r.r, 0);
+                                            const total = totalW + totalB + totalY + totalR;
+                                            
+                                            const pW = total ? ((totalW/total)*100).toFixed(0) : 0;
+                                            const pB = total ? ((totalB/total)*100).toFixed(0) : 0;
+                                            const pY = total ? ((totalY/total)*100).toFixed(0) : 0;
+                                            const pR = total ? ((totalR/total)*100).toFixed(0) : 0;
+
+                                            const isExpanded = expandedFlowers.has(item.id);
+
+                                            // 將紀錄按「種法」分組
+                                            const groupedByMethod = records.reduce((acc, r) => {
+                                                if (!acc[r.method]) acc[r.method] = { w:0, b:0, y:0, r:0, count:0, list:[] };
+                                                acc[r.method].w += r.w; acc[r.method].b += r.b; acc[r.method].y += r.y; acc[r.method].r += r.r;
+                                                acc[r.method].count += 1;
+                                                acc[r.method].list.push(r);
+                                                return acc;
+                                            }, {});
+
+                                            return (
+                                                <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
+                                                    {/* 花朵封面圖 */}
+                                                    {item.imageUrl ? (
+                                                        <div className="h-48 w-full bg-slate-100 relative group">
+                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                                                            {isAdmin && (
+                                                                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button onClick={() => handleOpenModal(item)} className="p-1.5 bg-white/90 backdrop-blur rounded text-slate-600 hover:text-blue-500 shadow"><Icon path={ICONS.Edit2} /></button>
+                                                                    <button onClick={() => setDeleteId(item.id)} className="p-1.5 bg-white/90 backdrop-blur rounded text-slate-600 hover:text-red-500 shadow"><Icon path={ICONS.Trash2} /></button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="h-20 w-full bg-pink-50 flex items-center justify-center relative group">
+                                                            <Icon path={ICONS.Leaf} className="text-pink-200 opacity-50" />
+                                                            {isAdmin && (
+                                                                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <button onClick={() => handleOpenModal(item)} className="p-1.5 bg-white shadow border rounded text-slate-500 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
+                                                                    <button onClick={() => setDeleteId(item.id)} className="p-1.5 bg-white shadow border rounded text-slate-500 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    
+                                                    <div className="p-5">
+                                                        <div className="flex justify-between items-end mb-2">
+                                                            <h3 className="text-xl font-bold text-slate-800">{item.name}</h3>
+                                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-full">總樣本: {total}</span>
+                                                        </div>
+                                                        
+                                                        {/* 總機率條 */}
+                                                        {renderProgressBar(totalW, totalB, totalY, totalR)}
+                                                        <div className="flex justify-between text-[11px] font-bold text-slate-500 mt-1">
+                                                            <span className="text-slate-400">⚪ {pW}%</span>
+                                                            <span className="text-blue-500">🔵 {pB}%</span>
+                                                            <span className="text-yellow-600">🟡 {pY}%</span>
+                                                            <span className="text-red-500">🔴 {pR}%</span>
+                                                        </div>
+
+                                                        {/* 展開/收合按鈕 */}
+                                                        <button 
+                                                            onClick={() => toggleExpandFlower(item.id)}
+                                                            className="w-full mt-4 py-2 border border-pink-200 text-pink-600 rounded-lg text-sm font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors"
+                                                        >
+                                                            {isExpanded ? <><Icon path={ICONS.ChevronUp}/> 收起詳細數據</> : <><Icon path={ICONS.ChevronDown}/> 展開詳細數據</>}
+                                                        </button>
+
+                                                        {/* 展開後的內容 */}
+                                                        {isExpanded && (
+                                                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-5">
+                                                                {/* 依種法分類顯示 */}
+                                                                {Object.keys(groupedByMethod).length === 0 ? (
+                                                                    <p className="text-center text-sm text-slate-400 py-4">目前尚無實驗紀錄</p>
+                                                                ) : (
+                                                                    Object.entries(groupedByMethod).map(([method, stats]) => {
+                                                                        const stTotal = stats.w + stats.b + stats.y + stats.r;
+                                                                        return (
+                                                                            <div key={method} className="bg-slate-50 rounded-lg p-3 border border-slate-100">
+                                                                                <div className="flex justify-between items-center mb-1">
+                                                                                    <span className="text-sm font-bold text-slate-700 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200">🏷️ {method}</span>
+                                                                                    <span className="text-[10px] text-slate-500">樣本: {stTotal} ({stats.count}筆)</span>
+                                                                                </div>
+                                                                                {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
+                                                                                
+                                                                                {/* Admin 刪除歷史紀錄的小清單 */}
+                                                                                {isAdmin && (
+                                                                                    <div className="mt-2 pt-2 border-t border-slate-200/60 space-y-1">
+                                                                                        {stats.list.map(r => (
+                                                                                            <div key={r.rId} className="flex justify-between items-center text-[10px] text-slate-400 hover:bg-slate-100 p-1 rounded">
+                                                                                                <span>{r.date} - ⚪{r.w} 🔵{r.b} 🟡{r.y} 🔴{r.r}</span>
+                                                                                                <button onClick={() => handleDeleteRecord(item.id, r.rId)} className="text-red-400 hover:text-red-600"><Icon path={ICONS.Trash2}/></button>
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })
+                                                                )}
+                                                                
+                                                                {/* 新增紀錄按鈕 */}
+                                                                {isAdmin && (
+                                                                    <button 
+                                                                        onClick={() => handleOpenRecordModal(item.id)}
+                                                                        className="w-full py-2 bg-pink-100 text-pink-700 font-bold text-sm rounded-lg flex justify-center items-center gap-1 hover:bg-pink-200 transition-colors"
+                                                                    >
+                                                                        <Icon path={ICONS.Plus}/> 新增實驗紀錄
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                ))}
-                                            </div>
-                                        </section>
-                                    ))}
-                                </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </>
                         )}
                     </main>
+
+                    {/* 刪除確認 */}
                     {deleteId && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
@@ -561,22 +711,47 @@
                             </div>
                         </div>
                     )}
+
+                    {/* 花朵實驗紀錄專用 Modal */}
+                    {isRecordModalOpen && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
+                                <div className="px-6 py-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold text-pink-600">新增實驗紀錄</h3><button onClick={() => setIsRecordModalOpen(false)}><Icon path={ICONS.X} /></button></div>
+                                <form onSubmit={handleSaveRecord} className="p-6 space-y-4">
+                                    <div><label className="text-xs font-bold text-slate-500">日期</label><input type="date" required className="w-full border rounded p-2 text-sm" value={recordFormData.date} onChange={e => setRecordFormData({ ...recordFormData, date: e.target.value })} /></div>
+                                    <div><label className="text-xs font-bold text-slate-500">種法 (Tag)</label><input type="text" placeholder="例如: 黃藍油菜+櫻花" required className="w-full border rounded p-2 text-sm" value={recordFormData.method} onChange={e => setRecordFormData({ ...recordFormData, method: e.target.value })} /></div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        <div><label className="text-[10px] font-bold text-slate-400">白</label><input type="number" min="0" className="w-full border rounded p-1.5 text-sm text-center" value={recordFormData.w} onChange={e => setRecordFormData({...recordFormData, w: e.target.value})} /></div>
+                                        <div><label className="text-[10px] font-bold text-blue-500">藍</label><input type="number" min="0" className="w-full border rounded border-blue-200 bg-blue-50 p-1.5 text-sm text-center" value={recordFormData.b} onChange={e => setRecordFormData({...recordFormData, b: e.target.value})} /></div>
+                                        <div><label className="text-[10px] font-bold text-yellow-600">黃</label><input type="number" min="0" className="w-full border rounded border-yellow-200 bg-yellow-50 p-1.5 text-sm text-center" value={recordFormData.y} onChange={e => setRecordFormData({...recordFormData, y: e.target.value})} /></div>
+                                        <div><label className="text-[10px] font-bold text-red-500">紅</label><input type="number" min="0" className="w-full border rounded border-red-200 bg-red-50 p-1.5 text-sm text-center" value={recordFormData.r} onChange={e => setRecordFormData({...recordFormData, r: e.target.value})} /></div>
+                                    </div>
+                                    <button type="submit" disabled={isUploading} className="w-full mt-2 py-2 bg-pink-600 text-white rounded-lg font-bold hover:bg-pink-700 transition-colors shadow">{isUploading ? '儲存中...' : '儲存紀錄'}</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 主資料編輯 Modal (明信片/純點/活動金盆/花朵變異 共通) */}
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
                                 <div className="px-6 py-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold">{editingItem ? '編輯' : '新增'}</h3><button onClick={() => setIsModalOpen(false)}><Icon path={ICONS.X} /></button></div>
                                 <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
                                     {!editingItem && (
-                                        <div className="flex bg-slate-100 p-1 rounded-lg mb-2">
-                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
-                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
-                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-sm font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
+                                        <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg gap-1 mb-2">
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '花朵變異', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '花朵變異' ? 'bg-white shadow text-pink-600' : 'text-slate-500'}`}>花朵變異</button>
                                         </div>
                                     )}
-                                    {formData.mainType === '明信片' ? (
+                                    
+                                    {/* 花朵變異專屬表單（只顯示名字與圖片） */}
+                                    {formData.mainType === '花朵變異' ? (
                                         <>
                                             <div className="space-y-2">
-                                                <label className="block text-xs font-bold text-slate-500">明信片照片</label>
+                                                <label className="block text-xs font-bold text-slate-500">花朵封面照 (非必填)</label>
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48">
@@ -586,40 +761,63 @@
                                                             <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
                                                         </div>
                                                     </div>
-                                                ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><div className="flex flex-col items-center"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></div></button>)}
+                                                ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-pink-400 hover:text-pink-600 hover:bg-pink-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳花朵照</span></button>)}
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
-                                                <div>
-                                                    <label className="text-xs font-bold text-slate-500">類型</label>
-                                                    <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                                                        <option value="蘑菇">蘑菇</option>
-                                                        <option value="種花">種花</option>
-                                                        <option value="都有">都有</option>
-                                                        <option value="隱藏">隱藏</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
-                                            <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                            <div><label className="text-xs font-bold text-slate-500">花朵名稱</label><input required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
-                                            <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
-                                            <datalist id="pure-opts">
-                                                {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
-                                            </datalist>
-                                        </div>
+                                        /* 舊的明信片/純點表單邏輯 */
+                                        <>
+                                            {formData.mainType === '明信片' ? (
+                                                <>
+                                                    <div className="space-y-2">
+                                                        <label className="block text-xs font-bold text-slate-500">明信片照片</label>
+                                                        <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
+                                                        {formData.imageUrl ? (
+                                                            <div className="relative rounded-lg overflow-hidden border group h-48">
+                                                                <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
+                                                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
+                                                                    <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
+                                                        <div>
+                                                            <label className="text-xs font-bold text-slate-500">類型</label>
+                                                            <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                                <option value="蘑菇">蘑菇</option>
+                                                                <option value="種花">種花</option>
+                                                                <option value="都有">都有</option>
+                                                                <option value="隱藏">隱藏</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
+                                                    <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                                </>
+                                            ) : (
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
+                                                    <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                                    <datalist id="pure-opts">
+                                                        {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
+                                                    </datalist>
+                                                </div>
+                                            )}
+                                            <div><label className="text-xs font-bold text-slate-500">地點說明</label><input className="w-full border rounded p-2 text-sm" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-xs font-bold text-slate-500">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
+                                                <div><label className="text-xs font-bold text-slate-500">經度 (Lng)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                            </div>
+                                        </>
                                     )}
-                                    <div><label className="text-xs font-bold text-slate-500">地點說明</label><input className="w-full border rounded p-2 text-sm" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div><label className="text-xs font-bold text-slate-500">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
-                                        <div><label className="text-xs font-bold text-slate-500">經度 (Lng)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
-                                    </div>
+
                                     <div className="pt-4 flex gap-3">
                                         <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2 border rounded">取消</button>
-                                        <button type="submit" disabled={isUploading} className="flex-1 py-2 bg-emerald-600 text-white rounded flex items-center justify-center gap-2">{isUploading ? '上傳中...' : <><Icon path={ICONS.Save} />儲存</>}</button>
+                                        <button type="submit" disabled={isUploading} className={`flex-1 py-2 text-white rounded flex items-center justify-center gap-2 ${formData.mainType === '花朵變異' ? 'bg-pink-600' : 'bg-emerald-600'}`}>{isUploading ? '上傳中...' : <><Icon path={ICONS.Save} />儲存</>}</button>
                                     </div>
                                 </form>
                             </div>
