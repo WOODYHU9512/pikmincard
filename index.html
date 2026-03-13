@@ -89,8 +89,8 @@
             const csvInputRef = useRef(null);
             const [importMode, setImportMode] = useState("1"); 
             
-            // ★ imgFit 預設為 'cover'，切換為 'contain' 時就是自適應
-            const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "", imgPos: 50, imgFit: 'cover' });
+            // 移除位置控制，只保留基本資料
+            const [formData, setFormData] = useState({ mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "" });
             const [selectedFileState, setSelectedFileState] = useState(null);
 
             useEffect(() => {
@@ -171,12 +171,11 @@
                     if ((item.mainType === '純點' || item.mainType === '活動金盆') && !editLocation && item.name) {
                         editLocation = item.name;
                     }
-                    // ★ 讀取設定的 imgFit 與 imgPos
-                    setFormData({ imageUrl: "", imgPos: 50, imgFit: 'cover', mainType: "明信片", ...item, location: editLocation || "" });
+                    setFormData({ imageUrl: "", mainType: "明信片", ...item, location: editLocation || "" });
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
-                    setFormData({ mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", imgPos: 50, imgFit: 'cover' });
+                    setFormData({ mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "" });
                     setSelectedFileState(null);
                 }
                 setIsModalOpen(true);
@@ -397,7 +396,7 @@
                                 const item = {
                                     id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
                                     name: importedName, type: cols[5] || '', location: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
-                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || '', imgPos: 50, imgFit: 'cover'
+                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || ''
                                 };
                                 return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
                             }).filter(p => p !== null);
@@ -435,7 +434,7 @@
                                     return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), {
                                         id, mainType: '花朵變異', name: name, category: '', series: '', type: '', location: '', lat: '', lng: '',
                                         records: flowerUpdates[name],
-                                        lastUpdated: new Date().toISOString(), imageUrl: '', imgPos: 50, imgFit: 'cover'
+                                        lastUpdated: new Date().toISOString(), imageUrl: ''
                                     });
                                 }
                             });
@@ -549,15 +548,10 @@
                                                             )}
                                                             {mainTab === '明信片' && (
                                                                 <>
-                                                                    {/* ★ 判斷是否為自適應模式 (imgFit) ★ */}
+                                                                    {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                                     {item.imageUrl && (
-                                                                        <div className={`mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl ${item.imgFit === 'contain' ? 'p-2' : 'overflow-hidden'}`}>
-                                                                            <img 
-                                                                                src={item.imageUrl} 
-                                                                                alt={item.name} 
-                                                                                className={`w-full h-full ${item.imgFit === 'contain' ? 'object-contain' : 'object-cover'}`} 
-                                                                                style={item.imgFit !== 'contain' ? { objectPosition: `50% ${item.imgPos ?? 50}%` } : {}} 
-                                                                            />
+                                                                        <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2">
+                                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
                                                                         </div>
                                                                     )}
                                                                     <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
@@ -626,13 +620,12 @@
                                             return (
                                                 <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
                                                     {item.imageUrl ? (
-                                                        <div className="h-48 w-full bg-slate-100 relative group">
-                                                            {/* ★ 判斷是否為自適應模式 ★ */}
+                                                        <div className="h-48 w-full bg-slate-100 relative group p-2">
+                                                            {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                             <img 
                                                                 src={item.imageUrl} 
                                                                 alt={item.name} 
-                                                                className={`w-full h-full ${item.imgFit === 'contain' ? 'object-contain p-2' : 'object-cover'}`} 
-                                                                style={item.imgFit !== 'contain' ? { objectPosition: `50% ${item.imgPos ?? 50}%` } : {}} 
+                                                                className="w-full h-full object-contain" 
                                                             />
                                                             {isAdmin && (
                                                                 <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -775,11 +768,11 @@
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
+                                                        {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                         <img 
                                                             src={formData.imageUrl} 
                                                             alt="Preview" 
-                                                            className={`w-full h-full ${formData.imgFit === 'contain' ? 'object-contain p-2' : 'object-cover'}`} 
-                                                            style={formData.imgFit !== 'contain' ? { objectPosition: `50% ${formData.imgPos ?? 50}%` } : {}} 
+                                                            className="w-full h-full object-contain p-2" 
                                                         />
                                                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                             <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
@@ -787,30 +780,6 @@
                                                         </div>
                                                     </div>
                                                 ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-pink-400 hover:text-pink-600 hover:bg-pink-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳花朵照</span></button>)}
-                                                
-                                                {/* ★ 自適應與微調的切換按鈕 ★ */}
-                                                {formData.imageUrl && (
-                                                    <div>
-                                                        <div className="flex gap-2 mt-2">
-                                                            <button type="button" onClick={() => setFormData({...formData, imgFit: 'cover'})} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.imgFit !== 'contain' ? 'bg-pink-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>填滿版面 (可微調)</button>
-                                                            <button type="button" onClick={() => setFormData({...formData, imgFit: 'contain'})} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.imgFit === 'contain' ? 'bg-pink-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>自適應 (完整顯示)</button>
-                                                        </div>
-                                                        {formData.imgFit !== 'contain' && (
-                                                            <div className="pt-3 pb-1">
-                                                                <div className="flex justify-between text-xs text-slate-500 mb-1">
-                                                                    <span>調整圖片顯示位置 (上至下)</span>
-                                                                    <span>{formData.imgPos ?? 50}%</span>
-                                                                </div>
-                                                                <input 
-                                                                    type="range" min="0" max="100" 
-                                                                    value={formData.imgPos || 50} 
-                                                                    onChange={(e) => setFormData({...formData, imgPos: e.target.value})}
-                                                                    className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
                                             </div>
                                             <div><label className="text-xs font-bold text-slate-500">花朵名稱</label><input required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
@@ -823,11 +792,11 @@
                                                         <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                         {formData.imageUrl ? (
                                                             <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
+                                                                {/* ★ 全面套用 object-contain 自適應模式 ★ */}
                                                                 <img 
                                                                     src={formData.imageUrl} 
                                                                     alt="Preview" 
-                                                                    className={`w-full h-full ${formData.imgFit === 'contain' ? 'object-contain p-2' : 'object-cover'}`} 
-                                                                    style={formData.imgFit !== 'contain' ? { objectPosition: `50% ${formData.imgPos ?? 50}%` } : {}} 
+                                                                    className="w-full h-full object-contain p-2" 
                                                                 />
                                                                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
                                                                     <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
@@ -835,30 +804,6 @@
                                                                 </div>
                                                             </div>
                                                         ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
-                                                        
-                                                        {/* ★ 自適應與微調的切換按鈕 ★ */}
-                                                        {formData.imageUrl && (
-                                                            <div>
-                                                                <div className="flex gap-2 mt-2">
-                                                                    <button type="button" onClick={() => setFormData({...formData, imgFit: 'cover'})} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.imgFit !== 'contain' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>填滿版面 (可微調)</button>
-                                                                    <button type="button" onClick={() => setFormData({...formData, imgFit: 'contain'})} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.imgFit === 'contain' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>自適應 (完整顯示)</button>
-                                                                </div>
-                                                                {formData.imgFit !== 'contain' && (
-                                                                    <div className="pt-3 pb-1">
-                                                                        <div className="flex justify-between text-xs text-slate-500 mb-1">
-                                                                            <span>調整圖片顯示位置 (上至下)</span>
-                                                                            <span>{formData.imgPos ?? 50}%</span>
-                                                                        </div>
-                                                                        <input 
-                                                                            type="range" min="0" max="100" 
-                                                                            value={formData.imgPos || 50} 
-                                                                            onChange={(e) => setFormData({...formData, imgPos: e.target.value})}
-                                                                            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
-                                                                        />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-4">
                                                         <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
