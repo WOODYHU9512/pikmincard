@@ -548,9 +548,9 @@
                             <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標與花朵圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
                                 <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
-                                <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
                                 {isAdmin && (
                                     <>
+                                        <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
                                         {selectedIds.size > 0 && (
                                             <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
                                         )}
@@ -656,7 +656,6 @@
                                             const totalR = records.reduce((s, r) => s + r.r, 0);
                                             const total = totalW + totalB + totalY + totalR;
                                             
-                                            // ★★★ 總機率套用 .toFixed(1) ★★★
                                             const pW = total ? ((totalW/total)*100).toFixed(1) : "0.0";
                                             const pB = total ? ((totalB/total)*100).toFixed(1) : "0.0";
                                             const pY = total ? ((totalY/total)*100).toFixed(1) : "0.0";
@@ -708,7 +707,6 @@
                                                         
                                                         {renderProgressBar(totalW, totalB, totalY, totalR)}
                                                         
-                                                        {/* ★★★ 放大總機率字體 text-lg font-extrabold ★★★ */}
                                                         <div className="flex justify-between text-lg font-extrabold text-slate-600 mt-2 tracking-wide">
                                                             <span className="text-slate-500">⚪ {pW}%</span>
                                                             <span className="text-blue-500">🔵 {pB}%</span>
@@ -735,7 +733,6 @@
                                                                                 </div>
                                                                                 {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
                                                                                 
-                                                                                {/* ★★★ 放大各別種法機率 text-base font-extrabold 且套用 .toFixed(1) ★★★ */}
                                                                                 <div className="flex justify-between text-base font-extrabold text-slate-500 mt-1 mb-3">
                                                                                     <span>⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}%</span>
                                                                                     <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}%</span>
