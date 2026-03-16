@@ -707,11 +707,24 @@
                                                         
                                                         {renderProgressBar(totalW, totalB, totalY, totalR)}
                                                         
-                                                        <div className="flex justify-between text-lg font-extrabold text-slate-600 mt-2 tracking-wide">
-                                                            <span className="text-slate-500">⚪ {pW}%</span>
-                                                            <span className="text-blue-500">🔵 {pB}%</span>
-                                                            <span className="text-yellow-600">🟡 {pY}%</span>
-                                                            <span className="text-red-500">🔴 {pR}%</span>
+                                                        {/* ★★★ 包含總數的全新儀表板機率顯示 ★★★ */}
+                                                        <div className="flex justify-between text-base font-extrabold text-slate-600 mt-3 mb-1 px-1">
+                                                            <div className="flex flex-col items-center text-slate-500">
+                                                                <span>⚪ {pW}%</span>
+                                                                <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded-full mt-1">{totalW} 朵</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-center text-blue-500">
+                                                                <span>🔵 {pB}%</span>
+                                                                <span className="text-xs font-bold bg-blue-50 px-2 py-0.5 rounded-full mt-1">{totalB} 朵</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-center text-yellow-600">
+                                                                <span>🟡 {pY}%</span>
+                                                                <span className="text-xs font-bold bg-yellow-50 px-2 py-0.5 rounded-full mt-1">{totalY} 朵</span>
+                                                            </div>
+                                                            <div className="flex flex-col items-center text-red-500">
+                                                                <span>🔴 {pR}%</span>
+                                                                <span className="text-xs font-bold bg-red-50 px-2 py-0.5 rounded-full mt-1">{totalR} 朵</span>
+                                                            </div>
                                                         </div>
 
                                                         <button onClick={() => toggleExpandFlower(item.id)} className="w-full mt-5 py-2.5 border border-pink-200 text-pink-600 rounded-lg text-base font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors">
@@ -733,11 +746,12 @@
                                                                                 </div>
                                                                                 {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
                                                                                 
-                                                                                <div className="flex justify-between text-base font-extrabold text-slate-500 mt-1 mb-3">
-                                                                                    <span>⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-yellow-600">🟡 {stTotal ? ((stats.y/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-red-500">🔴 {stTotal ? ((stats.r/stTotal)*100).toFixed(1) : "0.0"}%</span>
+                                                                                {/* ★★★ 包含總數的種法機率顯示 ★★★ */}
+                                                                                <div className="flex justify-between text-sm font-extrabold text-slate-500 mt-2 mb-3">
+                                                                                    <span className="text-slate-500">⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.w})</span></span>
+                                                                                    <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.b})</span></span>
+                                                                                    <span className="text-yellow-600">🟡 {stTotal ? ((stats.y/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.y})</span></span>
+                                                                                    <span className="text-red-500">🔴 {stTotal ? ((stats.r/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.r})</span></span>
                                                                                 </div>
 
                                                                                 <div className="mt-3 pt-3 border-t border-slate-200/60 space-y-2">
