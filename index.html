@@ -459,16 +459,41 @@
                         } 
                         else if (importMode === "2") {
                             const flowerUpdates = {};
+                            
+                            // ★ 智慧讀取標題列，找出正確的欄位位置
+                            const headers = parseCSVRow(rows[0]);
+                            const nameIdx = headers.indexOf('花朵名稱');
+                            const dateIdx = headers.indexOf('日期');
+                            const methodIdx = headers.findIndex(h => h.includes('種法'));
+                            
+                            const wIdx = headers.findIndex(h => h.includes('白'));
+                            const bIdx = headers.findIndex(h => h.includes('藍'));
+                            const yIdx = headers.findIndex(h => h.includes('黃'));
+                            const rIdx = headers.findIndex(h => h.includes('紅'));
+
+                            const isSmartFormat = nameIdx !== -1 && dateIdx !== -1 && methodIdx !== -1;
+
                             dataRows.forEach(row => {
                                 const cols = parseCSVRow(row);
-                                if (cols.length < 7) return;
-                                const name = cols[0];
-                                const date = cols[1] || new Date().toISOString().slice(0, 10);
-                                const method = cols[2];
-                                const w = parseInt(cols[3]) || 0;
-                                const b = parseInt(cols[4]) || 0;
-                                const y = parseInt(cols[5]) || 0;
-                                const r = parseInt(cols[6]) || 0;
+                                let name, date, method, w, b, y, r;
+
+                                if (isSmartFormat) {
+                                    name = cols[nameIdx];
+                                    date = cols[dateIdx];
+                                    method = cols[methodIdx];
+                                    w = parseInt(cols[wIdx]) || 0;
+                                    b = parseInt(cols[bIdx]) || 0;
+                                    y = parseInt(cols[yIdx]) || 0;
+                                    r = parseInt(cols[rIdx]) || 0;
+                                } else {
+                                    if (cols.length >= 8) {
+                                        name = cols[0]; date = cols[2]; method = cols[3];
+                                        w = parseInt(cols[4]) || 0; b = parseInt(cols[5]) || 0; y = parseInt(cols[6]) || 0; r = parseInt(cols[7]) || 0;
+                                    } else {
+                                        name = cols[0]; date = cols[1]; method = cols[2];
+                                        w = parseInt(cols[3]) || 0; b = parseInt(cols[4]) || 0; y = parseInt(cols[5]) || 0; r = parseInt(cols[6]) || 0;
+                                    }
+                                }
                                 
                                 if (!name || !method) return;
                                 if (!flowerUpdates[name]) flowerUpdates[name] = [];
@@ -707,7 +732,6 @@
                                                         
                                                         {renderProgressBar(totalW, totalB, totalY, totalR)}
                                                         
-                                                        {/* ★★★ 包含總數的全新儀表板機率顯示 ★★★ */}
                                                         <div className="flex justify-between text-base font-extrabold text-slate-600 mt-3 mb-1 px-1">
                                                             <div className="flex flex-col items-center text-slate-500">
                                                                 <span>⚪ {pW}%</span>
@@ -746,7 +770,6 @@
                                                                                 </div>
                                                                                 {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
                                                                                 
-                                                                                {/* ★★★ 包含總數的種法機率顯示 ★★★ */}
                                                                                 <div className="flex justify-between text-sm font-extrabold text-slate-500 mt-2 mb-3">
                                                                                     <span className="text-slate-500">⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.w})</span></span>
                                                                                     <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.b})</span></span>
