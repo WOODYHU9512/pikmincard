@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標與花朵圖鑑</title>
+    <title>Pikmin 座標圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -13,11 +13,11 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        const { useState, useEffect, useRef, Fragment } = React;
+        const { useState, useEffect, useRef, Fragment, useCallback } = React;
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
         const firebaseConfig = {
@@ -34,7 +34,6 @@
         const db = getFirestore(app);
         const storage = getStorage(app);
         const appId = 'pikmin-public-v1';
-
         const ADMIN_EMAIL = "admin@pikmin.map"; 
 
         const Icon = ({ path }) => (
@@ -59,8 +58,7 @@
             X: <path d="M18 6 6 18 M6 6l12 12" />,
             Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
             Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
-            ChevronDown: <polyline points="6 9 12 15 18 9" />,
-            ChevronUp: <polyline points="18 15 12 9 6 15" />
+            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>
         };
 
         const App = () => {
@@ -79,21 +77,19 @@
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
             const [selectedIds, setSelectedIds] = useState(new Set());
-            const [expandedFlowers, setExpandedFlowers] = useState(new Set());
-
-            const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-            const [recordTargetId, setRecordTargetId] = useState(null);
-            const [recordFormData, setRecordFormData] = useState({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
 
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
-            const [importMode, setImportMode] = useState("1"); 
             
             const [formData, setFormData] = useState({ 
-                mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: "",
-                rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+                mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", location: "", type: "蘑菇", imageUrl: ""
             });
             const [selectedFileState, setSelectedFileState] = useState(null);
+
+            // ★ 新增：地區辨識相關狀態
+            const [locationText, setLocationText] = useState("");
+            const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+            const [isFetchingGPS, setIsFetchingGPS] = useState(false);
 
             useEffect(() => {
                 onAuthStateChanged(auth, (u) => {
@@ -109,9 +105,12 @@
             }, []);
 
             useEffect(() => {
+                // 只抓取非花朵變異的資料，確保舊資料不會干擾
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
-                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    const docs = snapshot.docs
+                        .map(doc => ({ id: doc.id, ...doc.data() }))
+                        .filter(doc => doc.mainType !== '花朵變異'); // 過濾掉舊的花朵資料
                     docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
                     setPostcards(docs);
                     setLoading(false);
@@ -122,18 +121,76 @@
                 return () => unsubscribe();
             }, [isAdmin]);
 
+            // ★ 新增：精準地區辨識 (國家 + 一級行政區)
+            const detectLocation = useCallback(async (lat, lng) => {
+                if (!lat || !lng) {
+                    setLocationText("");
+                    return;
+                }
+                setIsDetectingLocation(true);
+                try {
+                    const response = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=zh-tw`);
+                    const data = await response.json();
+                    
+                    if (data) {
+                        let textParts = [];
+                        if (data.countryName) textParts.push(data.countryName);
+                        // 嘗試抓取州/縣市級別的名稱 (principalSubdivision 通常是 State/Prefecture/County)
+                        if (data.principalSubdivision && data.principalSubdivision !== data.countryName) {
+                            textParts.push(data.principalSubdivision);
+                        } else if (data.city) {
+                            textParts.push(data.city);
+                        }
+                        
+                        setLocationText(textParts.join(" "));
+                    } else {
+                        setLocationText("未知地點");
+                    }
+                } catch (error) {
+                    setLocationText("無法辨識");
+                } finally {
+                    setIsDetectingLocation(false);
+                }
+            }, []);
+
+            // 監聽經緯度變化，自動反查地區
+            useEffect(() => {
+                const timeoutId = setTimeout(() => {
+                    if (formData.lat && formData.lng) {
+                        detectLocation(formData.lat, formData.lng);
+                    } else {
+                        setLocationText("");
+                    }
+                }, 800);
+                return () => clearTimeout(timeoutId);
+            }, [formData.lat, formData.lng, detectLocation]);
+
+            const handleGetLocation = () => {
+                if (!navigator.geolocation) {
+                    alert("你的瀏覽器不支援自動定位功能喔！");
+                    return;
+                }
+                setIsFetchingGPS(true);
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const newLat = position.coords.latitude.toFixed(6);
+                        const newLng = position.coords.longitude.toFixed(6);
+                        setFormData(prev => ({ ...prev, lat: newLat, lng: newLng }));
+                        setIsFetchingGPS(false);
+                    },
+                    (error) => {
+                        alert("無法取得位置！請確認你是否已經允許這個網頁存取你的定位權限。");
+                        setIsFetchingGPS(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
+            };
+
             const toggleSelection = (id) => {
                 const newSelected = new Set(selectedIds);
                 if (newSelected.has(id)) newSelected.delete(id);
                 else newSelected.add(id);
                 setSelectedIds(newSelected);
-            };
-
-            const toggleExpandFlower = (id) => {
-                const next = new Set(expandedFlowers);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                setExpandedFlowers(next);
             };
 
             const handleAdminLogin = async () => {
@@ -174,16 +231,16 @@
                         editLocation = item.name;
                     }
                     setFormData({ 
-                        imageUrl: "", mainType: "明信片", ...item, location: editLocation || "",
-                        rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+                        imageUrl: "", mainType: "明信片", ...item, location: editLocation || ""
                     });
+                    setLocationText(item.region || ""); // 載入舊有的地區紀錄
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
                     setFormData({ 
-                        mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "",
-                        rDate: new Date().toISOString().slice(0, 10), rMethod: '', rW: '', rB: '', rY: '', rR: ''
+                        mainType: mainTab, category: activeCategory === "全部" ? "" : activeCategory, series: "", name: "", lat: "", lng: "", location: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: ""
                     });
+                    setLocationText("");
                     setSelectedFileState(null);
                 }
                 setIsModalOpen(true);
@@ -209,52 +266,21 @@
                     }
 
                     let docId = editingItem ? editingItem.id : Date.now().toString();
-                    let baseItem = editingItem || {};
-
-                    if (!editingItem && formData.mainType === '花朵變異' && formData.name) {
-                        const searchName = formData.name.trim().toLowerCase();
-                        const existingFlower = postcards.find(p => p.mainType === '花朵變異' && p.name && p.name.trim().toLowerCase() === searchName);
-                        if (existingFlower) {
-                            docId = existingFlower.id; 
-                            baseItem = existingFlower; 
-                            if (!finalImageUrl && existingFlower.imageUrl) {
-                                finalImageUrl = existingFlower.imageUrl;
-                            }
-                        }
-                    }
 
                     const newItem = {
                         id: docId,
                         mainType: formData.mainType,
                         name: formData.name.trim(),
+                        category: formData.category,
+                        series: formData.series,
+                        type: formData.type,
+                        location: formData.location,
+                        lat: formData.lat,
+                        lng: formData.lng,
+                        region: locationText, // ★ 將地區資訊存入資料庫
                         imageUrl: finalImageUrl,
                         lastUpdated: timestamp
                     };
-
-                    if (formData.mainType === '花朵變異') {
-                        const currentRecords = baseItem.records || [];
-                        let newRecords = [...currentRecords];
-                        
-                        if (formData.rMethod && formData.rMethod.trim() !== '') {
-                            newRecords.push({
-                                rId: Date.now().toString() + Math.random().toString().slice(2,6),
-                                date: formData.rDate,
-                                method: formData.rMethod.trim(),
-                                w: parseInt(formData.rW) || 0,
-                                b: parseInt(formData.rB) || 0,
-                                y: parseInt(formData.rY) || 0,
-                                r: parseInt(formData.rR) || 0,
-                            });
-                        }
-                        newItem.records = newRecords;
-                    } else {
-                        newItem.category = formData.category;
-                        newItem.series = formData.series;
-                        newItem.type = formData.type;
-                        newItem.location = formData.location;
-                        newItem.lat = formData.lat;
-                        newItem.lng = formData.lng;
-                    }
 
                     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', docId), newItem, { merge: true });
                     setIsModalOpen(false);
@@ -264,47 +290,6 @@
                 } finally { 
                     setIsUploading(false); 
                 }
-            };
-
-            const handleOpenRecordModal = (flowerId) => {
-                setRecordTargetId(flowerId);
-                setRecordFormData({ date: new Date().toISOString().slice(0, 10), method: '', w: '', b: '', y: '', r: '' });
-                setIsRecordModalOpen(true);
-            };
-
-            const handleSaveRecord = async (e) => {
-                e.preventDefault();
-                if (!isAdmin || !recordTargetId) return;
-                setIsUploading(true);
-                try {
-                    const flower = postcards.find(p => p.id === recordTargetId);
-                    const currentRecords = flower.records || [];
-                    const newRecord = {
-                        rId: Date.now().toString() + Math.random().toString().slice(2,5),
-                        date: recordFormData.date,
-                        method: recordFormData.method,
-                        w: parseInt(recordFormData.w) || 0,
-                        b: parseInt(recordFormData.b) || 0,
-                        y: parseInt(recordFormData.y) || 0,
-                        r: parseInt(recordFormData.r) || 0,
-                    };
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', flower.id), {
-                        records: [...currentRecords, newRecord],
-                        lastUpdated: new Date().toISOString()
-                    }, { merge: true });
-                    setIsRecordModalOpen(false);
-                } catch (error) { alert("儲存紀錄失敗: " + error.message); } finally { setIsUploading(false); }
-            };
-
-            const handleDeleteRecord = async (flowerId, recordId) => {
-                if (!isAdmin) return;
-                if (!confirm("確定要刪除這筆實驗紀錄嗎？")) return;
-                setIsUploading(true);
-                try {
-                    const flower = postcards.find(p => p.id === flowerId);
-                    const newRecords = (flower.records || []).filter(r => r.rId !== recordId);
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', flowerId), { records: newRecords }, { merge: true });
-                } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
             const handleBatchDelete = async () => {
@@ -357,38 +342,24 @@
             };
 
             const handleExportCSV = () => {
-                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n5. 花朵變異明細\n\n請輸入對應數字 (1-5)：", "1");
+                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n\n請輸入對應數字 (1-4)：", "1");
                 if (!option) return; 
 
                 let exportData = [];
                 let fileNameSuffix = "";
-                let isFlowerMode = false;
 
                 switch (option.trim()) {
                     case "1": exportData = postcards; fileNameSuffix = "全部"; break;
                     case "2": exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片'); fileNameSuffix = "明信片"; break;
                     case "3": exportData = postcards.filter(p => p.mainType === '純點'); fileNameSuffix = "純點"; break;
                     case "4": exportData = postcards.filter(p => p.mainType === '活動金盆'); fileNameSuffix = "活動金盆"; break;
-                    case "5": exportData = postcards.filter(p => p.mainType === '花朵變異'); fileNameSuffix = "花朵變異明細"; isFlowerMode = true; break;
                     default: alert("輸入錯誤，已取消匯出。"); return;
                 }
 
                 if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
 
-                let csvContent = "";
-                if (isFlowerMode) {
-                    const headers = ["花朵名稱", "紀錄ID", "日期", "種法", "白數量", "藍數量", "黃數量", "紅數量"];
-                    let rows = [headers.join(",")];
-                    exportData.forEach(flower => {
-                        (flower.records || []).forEach(r => {
-                            rows.push([`"${flower.name}"`, r.rId, r.date, `"${r.method}"`, r.w, r.b, r.y, r.r].join(","));
-                        });
-                    });
-                    csvContent = rows.join("\n");
-                } else {
-                    const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "緯度", "經度", "最後更新時間", "圖片連結"];
-                    csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
-                }
+                const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地點", "地區", "緯度", "經度", "最後更新時間", "圖片連結"];
+                const csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.location || ''}"`, `"${item.region || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
 
                 const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
@@ -397,16 +368,6 @@
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-            };
-
-            const triggerImport = () => {
-                const opt = window.prompt("請選擇要匯入的資料格式：\n1. 一般資料 (明信片/純點/活動金盆)\n2. 花朵變異實驗明細\n\n請輸入對應數字 (1-2)：", "1");
-                if (opt === "1" || opt === "2") {
-                    setImportMode(opt.trim());
-                    csvInputRef.current?.click();
-                } else if (opt !== null) {
-                    alert("輸入錯誤，已取消匯入。");
-                }
             };
 
             const handleImportCSV = (e) => {
@@ -440,86 +401,21 @@
                             return ret;
                         };
 
-                        if (importMode === "1") {
-                            const promises = dataRows.map(row => {
-                                const cols = parseCSVRow(row);
-                                if (cols.length < 2) return null;
-                                const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
-                                let importedName = cols[4];
-                                if (!importedName && cols[6]) importedName = cols[6];
-                                const item = {
-                                    id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
-                                    name: importedName, type: cols[5] || '', location: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
-                                    lastUpdated: cols[9] || new Date().toISOString(), imageUrl: cols[10] || ''
-                                };
-                                return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
-                            }).filter(p => p !== null);
-                            await Promise.all(promises);
-                            alert(`匯入完成！成功匯入 ${promises.length} 筆一般資料。`);
-                        } 
-                        else if (importMode === "2") {
-                            const flowerUpdates = {};
-                            
-                            // ★ 智慧讀取標題列，找出正確的欄位位置
-                            const headers = parseCSVRow(rows[0]);
-                            const nameIdx = headers.indexOf('花朵名稱');
-                            const dateIdx = headers.indexOf('日期');
-                            const methodIdx = headers.findIndex(h => h.includes('種法'));
-                            
-                            const wIdx = headers.findIndex(h => h.includes('白'));
-                            const bIdx = headers.findIndex(h => h.includes('藍'));
-                            const yIdx = headers.findIndex(h => h.includes('黃'));
-                            const rIdx = headers.findIndex(h => h.includes('紅'));
-
-                            const isSmartFormat = nameIdx !== -1 && dateIdx !== -1 && methodIdx !== -1;
-
-                            dataRows.forEach(row => {
-                                const cols = parseCSVRow(row);
-                                let name, date, method, w, b, y, r;
-
-                                if (isSmartFormat) {
-                                    name = cols[nameIdx];
-                                    date = cols[dateIdx];
-                                    method = cols[methodIdx];
-                                    w = parseInt(cols[wIdx]) || 0;
-                                    b = parseInt(cols[bIdx]) || 0;
-                                    y = parseInt(cols[yIdx]) || 0;
-                                    r = parseInt(cols[rIdx]) || 0;
-                                } else {
-                                    if (cols.length >= 8) {
-                                        name = cols[0]; date = cols[2]; method = cols[3];
-                                        w = parseInt(cols[4]) || 0; b = parseInt(cols[5]) || 0; y = parseInt(cols[6]) || 0; r = parseInt(cols[7]) || 0;
-                                    } else {
-                                        name = cols[0]; date = cols[1]; method = cols[2];
-                                        w = parseInt(cols[3]) || 0; b = parseInt(cols[4]) || 0; y = parseInt(cols[5]) || 0; r = parseInt(cols[6]) || 0;
-                                    }
-                                }
-                                
-                                if (!name || !method) return;
-                                if (!flowerUpdates[name]) flowerUpdates[name] = [];
-                                flowerUpdates[name].push({ rId: Date.now().toString() + Math.random().toString().slice(2,6), date, method, w, b, y, r });
-                            });
-
-                            const promises = Object.keys(flowerUpdates).map(async (name) => {
-                                const existingFlower = postcards.find(p => p.mainType === '花朵變異' && p.name === name);
-                                if (existingFlower) {
-                                    const currentRecords = existingFlower.records || [];
-                                    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', existingFlower.id), {
-                                        records: [...currentRecords, ...flowerUpdates[name]],
-                                        lastUpdated: new Date().toISOString()
-                                    }, { merge: true });
-                                } else {
-                                    const id = Date.now().toString() + Math.random().toString().slice(2,5);
-                                    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), {
-                                        id, mainType: '花朵變異', name: name, category: '', series: '', type: '', location: '', lat: '', lng: '',
-                                        records: flowerUpdates[name],
-                                        lastUpdated: new Date().toISOString(), imageUrl: ''
-                                    });
-                                }
-                            });
-                            await Promise.all(promises);
-                            alert(`花朵紀錄匯入完成！更新了 ${promises.length} 種花朵的資料。`);
-                        }
+                        const promises = dataRows.map(row => {
+                            const cols = parseCSVRow(row);
+                            if (cols.length < 2) return null;
+                            const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                            let importedName = cols[4];
+                            if (!importedName && cols[6]) importedName = cols[6];
+                            const item = {
+                                id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
+                                name: importedName, type: cols[5] || '', location: cols[6] || '', region: cols[7] || '', lat: cols[8] || '', lng: cols[9] || '',
+                                lastUpdated: cols[10] || new Date().toISOString(), imageUrl: cols[11] || ''
+                            };
+                            return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
+                        }).filter(p => p !== null);
+                        await Promise.all(promises);
+                        alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
 
                     } catch (error) { 
                         alert("匯入失敗，請確認格式是否正確。錯誤訊息: " + error.message); 
@@ -535,13 +431,12 @@
             const availableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
-            const availableFlowerNames = [...new Set(postcards.filter(p => p.mainType === '花朵變異').map(p => p.name).filter(Boolean))].sort();
 
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
                 const s = searchTerm.toLowerCase();
-                const matchesSearch = (item.name || "").toLowerCase().includes(s) || (item.location || "").toLowerCase().includes(s) || (item.type || "").toLowerCase().includes(s) || (item.series || "").toLowerCase().includes(s);
+                const matchesSearch = (item.name || "").toLowerCase().includes(s) || (item.location || "").toLowerCase().includes(s) || (item.type || "").toLowerCase().includes(s) || (item.series || "").toLowerCase().includes(s) || (item.region || "").toLowerCase().includes(s);
                 if (mainTab === '明信片') return (activeCategory === "全部" || item.category === activeCategory) && matchesSearch;
                 else return matchesSearch;
             });
@@ -553,24 +448,11 @@
                 return groups;
             }, {});
 
-            const renderProgressBar = (w, b, y, r) => {
-                const total = w + b + y + r;
-                if (total === 0) return <div className="h-4 w-full bg-slate-200 rounded-full my-2"></div>;
-                return (
-                    <div className="h-4 w-full flex rounded-full overflow-hidden my-2 shadow-inner">
-                        {w > 0 && <div style={{width: `${(w/total)*100}%`}} className="bg-slate-300" title={`白: ${w}`}></div>}
-                        {b > 0 && <div style={{width: `${(b/total)*100}%`}} className="bg-blue-400" title={`藍: ${b}`}></div>}
-                        {y > 0 && <div style={{width: `${(y/total)*100}%`}} className="bg-yellow-400" title={`黃: ${y}`}></div>}
-                        {r > 0 && <div style={{width: `${(r/total)*100}%`}} className="bg-red-400" title={`紅: ${r}`}></div>}
-                    </div>
-                );
-            };
-
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
                     <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標與花朵圖鑑</h1></div>
+                            <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
                             <div className="flex gap-2 items-center">
                                 <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
                                 {isAdmin && (
@@ -580,7 +462,7 @@
                                             <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
                                         )}
                                         <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
-                                        <button onClick={triggerImport} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
+                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
                                         <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
                                     </>
                                 )}
@@ -595,7 +477,6 @@
                                     <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
                                     <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
                                     <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
-                                    <button onClick={() => setMainTab('花朵變異')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '花朵變異' ? 'border-pink-500 text-pink-600' : 'border-transparent text-slate-500'}`}>花朵變異</button>
                                 </div>
                                 <div className="flex flex-col md:flex-row gap-4 mb-8 justify-between">
                                     {mainTab === '明信片' && (
@@ -604,207 +485,89 @@
                                     <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm" /></div>
                                 </div>
                                 
-                                {mainTab !== '花朵變異' && (
-                                    <div className="space-y-8">
-                                        {Object.entries(groupedPostcards).map(([groupKey, items]) => (
-                                            <section key={groupKey}>
-                                                <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
-                                                    <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
-                                                    {isAdmin && (
-                                                        <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors"><Icon path={ICONS.Trash2} /></button>
-                                                    )}
-                                                </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                    {items.map(item => (
-                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
-                                                            {isAdmin && (
-                                                                <>
-                                                                    <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
-                                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
-                                                                        <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                <div className="space-y-8">
+                                    {Object.entries(groupedPostcards).map(([groupKey, items]) => (
+                                        <section key={groupKey}>
+                                            <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
+                                                {isAdmin && (
+                                                    <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors"><Icon path={ICONS.Trash2} /></button>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {items.map(item => (
+                                                    <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
+                                                        {isAdmin && (
+                                                            <>
+                                                                <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
+                                                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                        {mainTab === '明信片' && (
+                                                            <>
+                                                                {item.imageUrl && (
+                                                                    <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2">
+                                                                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
                                                                     </div>
-                                                                </>
-                                                            )}
-                                                            {mainTab === '明信片' && (
-                                                                <>
-                                                                    {item.imageUrl && (
-                                                                        <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2">
-                                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
-                                                                        </div>
-                                                                    )}
-                                                                    <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
-                                                                        <div className="flex items-center gap-2 mb-1">
-                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                                                                item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
-                                                                                item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
-                                                                                item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
-                                                                            }`}>{item.type}</span>
-                                                                            <span className="text-xs text-slate-400">{item.category}</span>
-                                                                        </div>
+                                                                )}
+                                                                <div className={`mb-3 ${!item.imageUrl ? '' : 'pt-1'}`}>
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                            item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                            item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
+                                                                            item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
+                                                                        }`}>{item.type}</span>
+                                                                        <span className="text-xs text-slate-400">{item.category}</span>
                                                                     </div>
-                                                                </>
-                                                            )}
-                                                            {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
-                                                            {mainTab === '活動金盆' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                        {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                        {mainTab === '活動金盆' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                        
+                                                        <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">{mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}</h3>
+
+                                                        <div className="space-y-3 text-sm text-slate-600">
+                                                            {mainTab === '明信片' && (<div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>)}
                                                             
-                                                            <h3 className="text-lg font-bold text-slate-800 mb-3 line-clamp-1">{mainTab === '明信片' ? (item.name || '未命名項目') : (item.location || item.name || '未命名地點')}</h3>
-
-                                                            <div className="space-y-3 text-sm text-slate-600">
-                                                                {mainTab === '明信片' && (<div className="flex items-start gap-2"><div className="mt-0.5 text-emerald-500 shrink-0"><Icon path={ICONS.MapPin} /></div><span>{item.location}</span></div>)}
-                                                                <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
-                                                                    <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
-                                                                    <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
-                                                                    <div className="border-t border-slate-200/50 pt-2 mt-1">
-                                                                        <button onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors">
-                                                                            <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
-                                                                        </button>
+                                                            {/* ★ 地區與座標區塊 */}
+                                                            <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
+                                                                {/* ★ 新增：顯示地區資訊 (純文字) */}
+                                                                {item.region && (
+                                                                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 mb-2 pb-2 border-b border-slate-200/50">
+                                                                        <Icon path={ICONS.MapPin} /> {item.region}
                                                                     </div>
-                                                                </div>
-                                                                <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </section>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {mainTab === '花朵變異' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        {displayedItems.map(item => {
-                                            const records = item.records || [];
-                                            const totalW = records.reduce((s, r) => s + r.w, 0);
-                                            const totalB = records.reduce((s, r) => s + r.b, 0);
-                                            const totalY = records.reduce((s, r) => s + r.y, 0);
-                                            const totalR = records.reduce((s, r) => s + r.r, 0);
-                                            const total = totalW + totalB + totalY + totalR;
-                                            
-                                            const pW = total ? ((totalW/total)*100).toFixed(1) : "0.0";
-                                            const pB = total ? ((totalB/total)*100).toFixed(1) : "0.0";
-                                            const pY = total ? ((totalY/total)*100).toFixed(1) : "0.0";
-                                            const pR = total ? ((totalR/total)*100).toFixed(1) : "0.0";
-
-                                            const isExpanded = expandedFlowers.has(item.id);
-
-                                            const groupedByMethod = records.reduce((acc, r) => {
-                                                if (!acc[r.method]) acc[r.method] = { w:0, b:0, y:0, r:0, count:0, list:[] };
-                                                acc[r.method].w += r.w; acc[r.method].b += r.b; acc[r.method].y += r.y; acc[r.method].r += r.r;
-                                                acc[r.method].count += 1;
-                                                acc[r.method].list.push(r);
-                                                return acc;
-                                            }, {});
-
-                                            return (
-                                                <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-pink-100 overflow-hidden">
-                                                    {item.imageUrl ? (
-                                                        <div className="h-48 w-full bg-slate-100 relative group p-2">
-                                                            <img 
-                                                                src={item.imageUrl} 
-                                                                alt={item.name} 
-                                                                className="w-full h-full object-contain" 
-                                                            />
-                                                            {isAdmin && (
-                                                                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => handleOpenModal(item)} className="p-1.5 bg-white/90 backdrop-blur rounded text-slate-600 hover:text-blue-500 shadow"><Icon path={ICONS.Edit2} /></button>
-                                                                    <button onClick={() => setDeleteId(item.id)} className="p-1.5 bg-white/90 backdrop-blur rounded text-slate-600 hover:text-red-500 shadow"><Icon path={ICONS.Trash2} /></button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="h-20 w-full bg-pink-50 flex items-center justify-center relative group">
-                                                            <Icon path={ICONS.Leaf} className="text-pink-200 opacity-50" />
-                                                            {isAdmin && (
-                                                                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <button onClick={() => handleOpenModal(item)} className="p-1.5 bg-white shadow border rounded text-slate-500 hover:text-blue-500"><Icon path={ICONS.Edit2} /></button>
-                                                                    <button onClick={() => setDeleteId(item.id)} className="p-1.5 bg-white shadow border rounded text-slate-500 hover:text-red-500"><Icon path={ICONS.Trash2} /></button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    
-                                                    <div className="p-5">
-                                                        <div className="flex justify-between items-end mb-3">
-                                                            <h3 className="text-2xl font-bold text-slate-800">{item.name}</h3>
-                                                            <span className="text-sm font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">總樣本: {total}</span>
-                                                        </div>
-                                                        
-                                                        {renderProgressBar(totalW, totalB, totalY, totalR)}
-                                                        
-                                                        <div className="flex justify-between text-base font-extrabold text-slate-600 mt-3 mb-1 px-1">
-                                                            <div className="flex flex-col items-center text-slate-500">
-                                                                <span>⚪ {pW}%</span>
-                                                                <span className="text-xs font-bold bg-slate-100 px-2 py-0.5 rounded-full mt-1">{totalW} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-blue-500">
-                                                                <span>🔵 {pB}%</span>
-                                                                <span className="text-xs font-bold bg-blue-50 px-2 py-0.5 rounded-full mt-1">{totalB} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-yellow-600">
-                                                                <span>🟡 {pY}%</span>
-                                                                <span className="text-xs font-bold bg-yellow-50 px-2 py-0.5 rounded-full mt-1">{totalY} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-red-500">
-                                                                <span>🔴 {pR}%</span>
-                                                                <span className="text-xs font-bold bg-red-50 px-2 py-0.5 rounded-full mt-1">{totalR} 朵</span>
-                                                            </div>
-                                                        </div>
-
-                                                        <button onClick={() => toggleExpandFlower(item.id)} className="w-full mt-5 py-2.5 border border-pink-200 text-pink-600 rounded-lg text-base font-bold flex justify-center items-center gap-1 hover:bg-pink-50 transition-colors">
-                                                            {isExpanded ? <><Icon path={ICONS.ChevronUp}/> 收起詳細數據</> : <><Icon path={ICONS.ChevronDown}/> 展開詳細數據</>}
-                                                        </button>
-
-                                                        {isExpanded && (
-                                                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-6">
-                                                                {Object.keys(groupedByMethod).length === 0 ? (
-                                                                    <p className="text-center text-base text-slate-400 py-4">目前尚無實驗紀錄</p>
-                                                                ) : (
-                                                                    Object.entries(groupedByMethod).map(([method, stats]) => {
-                                                                        const stTotal = stats.w + stats.b + stats.y + stats.r;
-                                                                        return (
-                                                                            <div key={method} className="bg-slate-50 rounded-lg p-4 border border-slate-100">
-                                                                                <div className="flex justify-between items-center mb-2">
-                                                                                    <span className="text-base font-bold text-slate-700 bg-white px-2.5 py-1 rounded shadow-sm border border-slate-200">🏷️ {method}</span>
-                                                                                    <span className="text-sm font-bold text-slate-500">樣本: {stTotal} ({stats.count}筆)</span>
-                                                                                </div>
-                                                                                {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
-                                                                                
-                                                                                <div className="flex justify-between text-sm font-extrabold text-slate-500 mt-2 mb-3">
-                                                                                    <span className="text-slate-500">⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.w})</span></span>
-                                                                                    <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.b})</span></span>
-                                                                                    <span className="text-yellow-600">🟡 {stTotal ? ((stats.y/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.y})</span></span>
-                                                                                    <span className="text-red-500">🔴 {stTotal ? ((stats.r/stTotal)*100).toFixed(1) : "0.0"}% <span className="text-[10px] font-medium ml-0.5">({stats.r})</span></span>
-                                                                                </div>
-
-                                                                                <div className="mt-3 pt-3 border-t border-slate-200/60 space-y-2">
-                                                                                    {stats.list.map(r => (
-                                                                                        <div key={r.rId} className="flex justify-between items-center text-sm font-bold text-slate-500 hover:bg-slate-100 p-1.5 rounded">
-                                                                                            <span>{r.date} ➡️ ⚪{r.w} 🔵{r.b} 🟡{r.y} 🔴{r.r}</span>
-                                                                                            {isAdmin && (
-                                                                                                <button onClick={() => handleDeleteRecord(item.id, r.rId)} className="text-red-400 hover:text-red-600 p-1 bg-white rounded shadow-sm"><Icon path={ICONS.Trash2}/></button>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })
                                                                 )}
                                                                 
-                                                                {isAdmin && (
-                                                                    <button onClick={() => handleOpenRecordModal(item.id)} className="w-full py-3 bg-pink-100 text-pink-700 font-bold text-base rounded-lg flex justify-center items-center gap-1 hover:bg-pink-200 transition-colors shadow-sm">
-                                                                        <Icon path={ICONS.Plus}/> 新增實驗紀錄
-                                                                    </button>
+                                                                {/* 以下只有管理員看得到詳細經緯度 */}
+                                                                {isAdmin ? (
+                                                                    <>
+                                                                        <div className="flex justify-between"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                        <div className="flex justify-between border-t border-slate-200/50 pt-2"><div className="flex gap-2"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                        <div className="border-t border-slate-200/50 pt-2 mt-1">
+                                                                            <button onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors">
+                                                                                <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
+                                                                            </button>
+                                                                        </div>
+                                                                    </>
+                                                                ) : (
+                                                                    // 非管理員如果沒有地區資訊，顯示提示
+                                                                    !item.region && <div className="text-xs text-slate-400 italic">座標資訊已隱藏</div>
                                                                 )}
                                                             </div>
-                                                        )}
+                                                            {isAdmin && (
+                                                                <a href={`https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
+                                                ))}
+                                            </div>
+                                        </section>
+                                    ))}
+                                </div>
                             </>
                         )}
                     </main>
@@ -819,25 +582,6 @@
                         </div>
                     )}
 
-                    {isRecordModalOpen && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col">
-                                <div className="px-6 py-4 border-b flex justify-between items-center"><h3 className="text-lg font-bold text-pink-600">新增實驗紀錄</h3><button onClick={() => setIsRecordModalOpen(false)}><Icon path={ICONS.X} /></button></div>
-                                <form onSubmit={handleSaveRecord} className="p-6 space-y-4">
-                                    <div><label className="text-sm font-bold text-slate-500 mb-1 block">日期</label><input type="date" required className="w-full border rounded p-2 text-base" value={recordFormData.date} onChange={e => setRecordFormData({ ...recordFormData, date: e.target.value })} /></div>
-                                    <div><label className="text-sm font-bold text-slate-500 mb-1 block">種法 (Tag)</label><input type="text" placeholder="例如: 黃藍油菜+櫻花" required className="w-full border rounded p-2 text-base" value={recordFormData.method} onChange={e => setRecordFormData({ ...recordFormData, method: e.target.value })} /></div>
-                                    <div className="grid grid-cols-4 gap-3 mt-2">
-                                        <div><label className="text-sm font-bold text-slate-400 block mb-1 text-center">白</label><input type="number" min="0" className="w-full border rounded p-2 text-base text-center" value={recordFormData.w} onChange={e => setRecordFormData({...recordFormData, w: e.target.value})} /></div>
-                                        <div><label className="text-sm font-bold text-blue-500 block mb-1 text-center">藍</label><input type="number" min="0" className="w-full border rounded border-blue-200 bg-blue-50 p-2 text-base text-center text-blue-700" value={recordFormData.b} onChange={e => setRecordFormData({...recordFormData, b: e.target.value})} /></div>
-                                        <div><label className="text-sm font-bold text-yellow-600 block mb-1 text-center">黃</label><input type="number" min="0" className="w-full border rounded border-yellow-200 bg-yellow-50 p-2 text-base text-center text-yellow-700" value={recordFormData.y} onChange={e => setRecordFormData({...recordFormData, y: e.target.value})} /></div>
-                                        <div><label className="text-sm font-bold text-red-500 block mb-1 text-center">紅</label><input type="number" min="0" className="w-full border rounded border-red-200 bg-red-50 p-2 text-base text-center text-red-700" value={recordFormData.r} onChange={e => setRecordFormData({...recordFormData, r: e.target.value})} /></div>
-                                    </div>
-                                    <button type="submit" disabled={isUploading} className="w-full mt-4 py-3 bg-pink-600 text-white rounded-lg font-bold text-base hover:bg-pink-700 transition-colors shadow">{isUploading ? '儲存中...' : '儲存紀錄'}</button>
-                                </form>
-                            </div>
-                        </div>
-                    )}
-
                     {isModalOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
@@ -848,14 +592,13 @@
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '明信片' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>明信片</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '純點' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>純點</button>
                                             <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '活動金盆' ? 'bg-white shadow text-emerald-600' : 'text-slate-500'}`}>活動金盆</button>
-                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '花朵變異', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded ${formData.mainType === '花朵變異' ? 'bg-white shadow text-pink-600' : 'text-slate-500'}`}>花朵變異</button>
                                         </div>
                                     )}
                                     
-                                    {formData.mainType === '花朵變異' ? (
+                                    {formData.mainType === '明信片' ? (
                                         <>
                                             <div className="space-y-2">
-                                                <label className="block text-xs font-bold text-slate-500">1. 花朵封面照 (非必填)</label>
+                                                <label className="block text-xs font-bold text-slate-500">明信片照片</label>
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
@@ -865,83 +608,61 @@
                                                             <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
                                                         </div>
                                                     </div>
-                                                ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-pink-400 hover:text-pink-600 hover:bg-pink-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳花朵照</span></button>)}
+                                                ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
                                             </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-slate-500">2. 花朵名稱 (必填)</label>
-                                                <input list="flower-opts" required className="w-full border rounded p-2 text-sm border-pink-200 focus:ring-pink-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                                                <datalist id="flower-opts">
-                                                    {availableFlowerNames.map(f => <option key={f} value={f} />)}
-                                                </datalist>
-                                            </div>
-                                            
-                                            <div className="mt-4 p-4 bg-pink-50 border border-pink-100 rounded-xl space-y-3">
-                                                <h4 className="text-sm font-bold text-pink-600 mb-1 flex items-center gap-1">
-                                                    <Icon path={ICONS.Plus}/> 3. 同時新增一筆紀錄 (選填)
-                                                </h4>
-                                                <p className="text-xs text-slate-500 -mt-2 mb-2">如果您只是要上傳/更換照片，這裡可以留空。</p>
-                                                <div><label className="text-xs font-bold text-slate-500 block mb-1">日期</label><input type="date" className="w-full border rounded p-2 text-sm" value={formData.rDate} onChange={e => setFormData({ ...formData, rDate: e.target.value })} /></div>
-                                                <div><label className="text-xs font-bold text-slate-500 block mb-1">種法 (Tag)</label><input type="text" placeholder="例如: 黃藍油菜+櫻花" className="w-full border rounded p-2 text-sm" value={formData.rMethod} onChange={e => setFormData({ ...formData, rMethod: e.target.value })} /></div>
-                                                <div className="grid grid-cols-4 gap-2 mt-2">
-                                                    <div><label className="text-xs font-bold text-slate-400 block mb-1 text-center">白</label><input type="number" min="0" className="w-full border rounded p-2 text-sm text-center" value={formData.rW} onChange={e => setFormData({...formData, rW: e.target.value})} /></div>
-                                                    <div><label className="text-xs font-bold text-blue-500 block mb-1 text-center">藍</label><input type="number" min="0" className="w-full border rounded border-blue-200 bg-blue-50 p-2 text-sm text-center text-blue-700" value={formData.rB} onChange={e => setFormData({...formData, rB: e.target.value})} /></div>
-                                                    <div><label className="text-xs font-bold text-yellow-600 block mb-1 text-center">黃</label><input type="number" min="0" className="w-full border rounded border-yellow-200 bg-yellow-50 p-2 text-sm text-center text-yellow-700" value={formData.rY} onChange={e => setFormData({...formData, rY: e.target.value})} /></div>
-                                                    <div><label className="text-xs font-bold text-red-500 block mb-1 text-center">紅</label><input type="number" min="0" className="w-full border rounded border-red-200 bg-red-50 p-2 text-sm text-center text-red-700" value={formData.rR} onChange={e => setFormData({...formData, rR: e.target.value})} /></div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500">類型</label>
+                                                    <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                        <option value="蘑菇">蘑菇</option>
+                                                        <option value="種花">種花</option>
+                                                        <option value="都有">都有</option>
+                                                        <option value="隱藏">隱藏</option>
+                                                    </select>
                                                 </div>
                                             </div>
+                                            <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
+                                            <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
-                                        <>
-                                            {formData.mainType === '明信片' ? (
-                                                <>
-                                                    <div className="space-y-2">
-                                                        <label className="block text-xs font-bold text-slate-500">明信片照片</label>
-                                                        <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
-                                                        {formData.imageUrl ? (
-                                                            <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
-                                                                <img src={formData.imageUrl} alt="Preview" className="w-full h-full object-contain p-2" />
-                                                                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-2 transition-opacity">
-                                                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white px-3 py-1 rounded text-xs font-bold">更換</button>
-                                                                    <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
-                                                                </div>
-                                                            </div>
-                                                        ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
-                                                    </div>
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
-                                                        <div>
-                                                            <label className="text-xs font-bold text-slate-500">類型</label>
-                                                            <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                                                                <option value="蘑菇">蘑菇</option>
-                                                                <option value="種花">種花</option>
-                                                                <option value="都有">都有</option>
-                                                                <option value="隱藏">隱藏</option>
-                                                            </select>
-                                                        </div>
-                                                    </div>
-                                                    <div><label className="text-xs font-bold text-slate-500">子類別</label><input list="sub-opts" className="w-full border rounded p-2 text-sm" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="sub-opts">{availableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
-                                                    <div><label className="text-xs font-bold text-slate-500">名稱</label><input className="w-full border rounded p-2 text-sm" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
-                                                </>
-                                            ) : (
-                                                <div>
-                                                    <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
-                                                    <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
-                                                    <datalist id="pure-opts">
-                                                        {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
-                                                    </datalist>
-                                                </div>
-                                            )}
-                                            <div><label className="text-xs font-bold text-slate-500">地點說明</label><input className="w-full border rounded p-2 text-sm" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-xs font-bold text-slate-500">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
-                                                <div><label className="text-xs font-bold text-slate-500">經度 (Lng)</label><input className="w-full border rounded p-2 text-sm font-mono" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
-                                            </div>
-                                        </>
+                                        <div>
+                                            <label className="text-xs font-bold text-slate-500">{formData.mainType === '活動金盆' ? '活動類型' : '純點類型'}</label>
+                                            <input list="pure-opts" className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                            <datalist id="pure-opts">
+                                                {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
+                                            </datalist>
+                                        </div>
                                     )}
+                                    <div><label className="text-xs font-bold text-slate-500">地點說明</label><input className="w-full border rounded p-2 text-sm" value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} /></div>
+                                    
+                                    {/* ★ 地點資訊輸入區塊 */}
+                                    <div className="bg-sky-50 p-4 rounded-xl space-y-3 border border-sky-100">
+                                        <div className="flex justify-between items-center pb-2 border-b border-sky-200">
+                                            <h4 className="text-sm font-bold text-sky-700">座標與地區</h4>
+                                            <button type="button" onClick={handleGetLocation} disabled={isFetchingGPS} className="bg-sky-600 hover:bg-sky-700 text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1 shadow-sm transition-colors disabled:opacity-50">
+                                                <Icon path={ICONS.Locate} /> 
+                                                {isFetchingGPS ? "定位中..." : "抓取目前定位"}
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
+                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">經度 (Lng)</label><input className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <Icon path={ICONS.MapPin} className="text-sky-500 w-4 h-4" />
+                                            <span className="text-xs font-bold text-sky-700">辨識地區：</span>
+                                            {isDetectingLocation ? (
+                                                <span className="text-xs text-slate-500 animate-pulse">正在搜尋...</span>
+                                            ) : (
+                                                <span className="text-sm font-black text-emerald-600 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">{locationText || "無"}</span>
+                                            )}
+                                        </div>
+                                    </div>
 
                                     <div className="pt-4 flex gap-3">
                                         <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2 border rounded">取消</button>
-                                        <button type="submit" disabled={isUploading} className={`flex-1 py-2 text-white rounded flex items-center justify-center gap-2 ${formData.mainType === '花朵變異' ? 'bg-pink-600' : 'bg-emerald-600'}`}>{isUploading ? '上傳中...' : <><Icon path={ICONS.Save} />儲存</>}</button>
+                                        <button type="submit" disabled={isUploading} className="flex-1 py-2 text-white rounded flex items-center justify-center gap-2 bg-emerald-600">{isUploading ? '上傳中...' : <><Icon path={ICONS.Save} />儲存</>}</button>
                                     </div>
                                 </form>
                             </div>
