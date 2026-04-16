@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標與花朵圖鑑</title>
+    <title>Pikmin 座標圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -58,7 +58,8 @@
             X: <path d="M18 6 6 18 M6 6l12 12" />,
             Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
             Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
-            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>
+            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>,
+            Clipboard: <Fragment><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></Fragment>
         };
 
         const App = () => {
@@ -218,15 +219,48 @@
                 }
             };
 
-            const handleImageChange = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
+            // 處理檔案上傳或貼上
+            const processFile = (file) => {
+                if (!file || !file.type.startsWith('image/')) return;
                 const reader = new FileReader();
-                reader.onload = (event) => { setFormData(prev => ({ ...prev, imageUrl: event.target.result })); };
+                reader.onload = (event) => { 
+                    setFormData(prev => ({ ...prev, imageUrl: event.target.result })); 
+                    setSelectedFileState(file);
+                };
                 reader.readAsDataURL(file);
-                setSelectedFileState(file);
             };
-            const handleRemoveImage = () => { setFormData(prev => ({ ...prev, imageUrl: "" })); setSelectedFileState(null); };
+
+            const handleImageChange = (e) => {
+                processFile(e.target.files[0]);
+            };
+
+            // ★ 新增：監聽鍵盤貼上事件 (Ctrl+V)
+            useEffect(() => {
+                const handlePaste = (e) => {
+                    if (!isModalOpen || formData.mainType !== '明信片') return;
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const file = items[i].getAsFile();
+                            processFile(file);
+                            e.preventDefault(); // 阻止預設貼上行為（避免貼到輸入框）
+                            break;
+                        }
+                    }
+                };
+
+                window.addEventListener('paste', handlePaste);
+                return () => window.removeEventListener('paste', handlePaste);
+            }, [isModalOpen, formData.mainType]);
+
+
+            const handleRemoveImage = () => { 
+                setFormData(prev => ({ ...prev, imageUrl: "" })); 
+                setSelectedFileState(null); 
+                if (fileInputRef.current) fileInputRef.current.value = "";
+            };
 
             const deleteOldImage = async (url) => {
                 if (!url) return;
@@ -262,7 +296,7 @@
                 try {
                     if (selectedFileState) {
                         if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
-                        const fileExt = selectedFileState.name.split('.').pop();
+                        const fileExt = selectedFileState.name.split('.').pop() || 'png'; // 貼上的圖片可能沒有附檔名，預設用 png
                         const fileName = `${Date.now()}.${fileExt}`;
                         const storageRef = ref(storage, `images/${fileName}`);
                         await uploadBytes(storageRef, selectedFileState);
@@ -273,7 +307,6 @@
 
                     let docId = editingItem ? editingItem.id : Date.now().toString();
 
-                    // 確保沒有手動地點的資料
                     const newItem = {
                         id: docId,
                         mainType: formData.mainType,
@@ -364,7 +397,6 @@
 
                 if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
 
-                // 匯出時移除手動地點欄位
                 const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地區", "緯度", "經度", "最後更新時間", "圖片連結"];
                 const csvContent = [headers.join(","), ...exportData.map(item => [item.id, `"${item.mainType || '明信片'}"`, `"${item.category || ''}"`, `"${item.series || ''}"`, `"${item.name || ''}"`, `"${item.type || ''}"`, `"${item.region || ''}"`, item.lat, item.lng, item.lastUpdated, `"${item.imageUrl || ''}"`].join(","))].join("\n");
 
@@ -414,7 +446,6 @@
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             let importedName = cols[4];
                             
-                            // 對應新的 CSV 格式 (少了一個欄位)
                             const item = {
                                 id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
                                 name: importedName, type: cols[5] || '', region: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
@@ -600,7 +631,10 @@
                                     {formData.mainType === '明信片' ? (
                                         <>
                                             <div className="space-y-2">
-                                                <label className="block text-xs font-bold text-slate-500">明信片照片</label>
+                                                <label className="flex items-center justify-between text-xs font-bold text-slate-500">
+                                                    <span>明信片照片</span>
+                                                    <span className="text-[10px] font-normal text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">支援直接 Ctrl+V 貼上</span>
+                                                </label>
                                                 <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
                                                 {formData.imageUrl ? (
                                                     <div className="relative rounded-lg overflow-hidden border group h-48 bg-slate-100">
@@ -610,7 +644,12 @@
                                                             <button type="button" onClick={handleRemoveImage} className="bg-red-500 text-white px-3 py-1 rounded text-xs font-bold">移除</button>
                                                         </div>
                                                     </div>
-                                                ) : (<button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"><Icon path={ICONS.Upload} /><span className="text-xs mt-2">上傳照片</span></button>)}
+                                                ) : (
+                                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed rounded-lg flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-200 transition-colors group">
+                                                        <Icon path={ICONS.Clipboard} />
+                                                        <span className="text-sm font-bold mt-2">點擊上傳 或 Ctrl+V 貼上圖片</span>
+                                                    </button>
+                                                )}
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div><label className="text-xs font-bold text-slate-500">大類別</label><input list="cat-opts" className="w-full border rounded p-2 text-sm" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
