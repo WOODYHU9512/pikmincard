@@ -219,7 +219,6 @@
                 }
             };
 
-            // 處理檔案上傳或貼上
             const processFile = (file) => {
                 if (!file || !file.type.startsWith('image/')) return;
                 const reader = new FileReader();
@@ -234,7 +233,6 @@
                 processFile(e.target.files[0]);
             };
 
-            // ★ 新增：監聽鍵盤貼上事件 (Ctrl+V)
             useEffect(() => {
                 const handlePaste = (e) => {
                     if (!isModalOpen || formData.mainType !== '明信片') return;
@@ -245,7 +243,7 @@
                         if (items[i].type.indexOf('image') !== -1) {
                             const file = items[i].getAsFile();
                             processFile(file);
-                            e.preventDefault(); // 阻止預設貼上行為（避免貼到輸入框）
+                            e.preventDefault(); 
                             break;
                         }
                     }
@@ -296,7 +294,7 @@
                 try {
                     if (selectedFileState) {
                         if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
-                        const fileExt = selectedFileState.name.split('.').pop() || 'png'; // 貼上的圖片可能沒有附檔名，預設用 png
+                        const fileExt = selectedFileState.name.split('.').pop() || 'png'; 
                         const fileName = `${Date.now()}.${fileExt}`;
                         const storageRef = ref(storage, `images/${fileName}`);
                         await uploadBytes(storageRef, selectedFileState);
@@ -556,7 +554,7 @@
                                                                     <div className="flex items-center gap-2 mb-1">
                                                                         <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
                                                                             item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
-                                                                            item.type === '種花' ? 'bg-pink-100 text-pink-700' : 
+                                                                            item.type === '花點' ? 'bg-pink-100 text-pink-700' : 
                                                                             item.type === '隱藏' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-800'
                                                                         }`}>{item.type}</span>
                                                                         <span className="text-xs text-slate-400">{item.category}</span>
@@ -657,7 +655,7 @@
                                                     <label className="text-xs font-bold text-slate-500">類型</label>
                                                     <select className="w-full border rounded p-2 text-sm" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
                                                         <option value="蘑菇">蘑菇</option>
-                                                        <option value="種花">種花</option>
+                                                        <option value="花點">花點</option>
                                                         <option value="都有">都有</option>
                                                         <option value="隱藏">隱藏</option>
                                                     </select>
