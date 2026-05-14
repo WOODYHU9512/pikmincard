@@ -253,6 +253,22 @@
                 return () => window.removeEventListener('paste', handlePaste);
             }, [isModalOpen, formData.mainType]);
 
+            // ★ 新增：智慧貼上座標功能
+            const handleCoordinatePaste = (e) => {
+                const pastedText = e.clipboardData.getData('text');
+                
+                // 檢查是否符合 "緯度, 經度" 或 "緯度,經度" 的格式 (可以有空白)
+                const coordsRegex = /^\s*(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)\s*$/;
+                const match = pastedText.match(coordsRegex);
+
+                if (match) {
+                    e.preventDefault(); // 阻止原本的貼上行為
+                    const newLat = match[1];
+                    const newLng = match[3];
+                    setFormData(prev => ({ ...prev, lat: newLat, lng: newLng }));
+                }
+            };
+
 
             const handleRemoveImage = () => { 
                 setFormData(prev => ({ ...prev, imageUrl: "" })); 
@@ -565,7 +581,6 @@
                                                         {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                         {mainTab === '活動金盆' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                         
-                                                        {/* ★ 修改：完整顯示名稱，並微調字體大小 */}
                                                         <h3 className="text-base font-bold text-slate-800 mb-3 break-words">{item.name || '未命名項目'}</h3>
 
                                                         <div className="space-y-3 text-sm text-slate-600">
@@ -687,8 +702,9 @@
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">緯度 (Lat)</label><input className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
-                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">經度 (Lng)</label><input className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                            {/* ★ 加上 handleCoordinatePaste 來偵測貼上 */}
+                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">緯度 (Lat)</label><input onPaste={handleCoordinatePaste} className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none placeholder:text-slate-300" placeholder="可直接貼上完整座標" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
+                                            <div><label className="text-xs font-bold text-sky-600 block mb-1">經度 (Lng)</label><input onPaste={handleCoordinatePaste} className="w-full border rounded p-2 text-sm font-mono focus:ring-1 focus:ring-sky-500 outline-none placeholder:text-slate-300" placeholder="可直接貼上完整座標" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
                                         </div>
                                         <div className="flex items-center gap-2 pt-1">
                                             <Icon path={ICONS.MapPin} className="text-sky-500 w-4 h-4" />
