@@ -118,11 +118,9 @@
             const [loading, setLoading] = useState(true);
             const [mainTab, setMainTab] = useState('明信片');
             
-            // ★ 新增的篩選狀態
             const [filterCategory, setFilterCategory] = useState("全部");
             const [filterSubCategory, setFilterSubCategory] = useState("全部");
-            const [filterType, setFilterType] = useState("全部");
-            
+            const [filterType, setFilterType] = useState("全部"); 
             const [searchTerm, setSearchTerm] = useState("");
             
             const [isModalOpen, setIsModalOpen] = useState(false);
@@ -145,6 +143,15 @@
             const [isDetectingLocation, setIsDetectingLocation] = useState(false);
             const [isFetchingGPS, setIsFetchingGPS] = useState(false);
 
+            // ★ 修正：從 postcards 計算最後更新時間，而不是幽靈變數 flowers
+            const lastUpdatedTime = useMemo(() => {
+                if (!postcards || postcards.length === 0) return "無紀錄";
+                const validDates = postcards.map(p => new Date(p.lastUpdated || 0)).filter(d => !isNaN(d.getTime()));
+                if (validDates.length === 0) return "無紀錄";
+                const latestDate = new Date(Math.max(...validDates));
+                return `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(2, '0')}-${String(latestDate.getDate()).padStart(2, '0')}`;
+            }, [postcards]);
+
             useEffect(() => {
                 onAuthStateChanged(auth, (u) => {
                     if (u) {
@@ -161,9 +168,7 @@
             useEffect(() => {
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
                 const unsubscribe = onSnapshot(q, async (snapshot) => {
-                    const docs = snapshot.docs
-                        .map(doc => ({ id: doc.id, ...doc.data() }))
-                        .filter(doc => doc.mainType !== '花朵變異'); 
+                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
                     docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
                     setPostcards(docs);
                     setLoading(false);
@@ -172,9 +177,8 @@
                     setLoading(false); 
                 });
                 return () => unsubscribe();
-            }, [isAdmin]);
+            }, []);
 
-            // ★ 當主分頁切換時，重置所有篩選條件
             useEffect(() => {
                 setFilterCategory("全部");
                 setFilterSubCategory("全部");
@@ -339,6 +343,7 @@
                 try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
+            // ★ 修正：將原本綁定錯的 handleOpenModalNew 移除，全部統一使用 handleOpenModal
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
@@ -537,10 +542,10 @@
                 reader.readAsText(file);
             };
 
-            // ★ 計算可用的大類別
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            const categories = ["全部", ...availableCategories];
             
-            // ★ 當大類別改變時，如果目前的子類別不在新的清單內，就把子類別重置為「全部」
+            // ★ 當大類別改變時，檢查並重置子類別
             useEffect(() => {
                 if (filterCategory !== "全部") {
                     const subCatsInCurrentCategory = [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))];
@@ -550,7 +555,7 @@
                 }
             }, [filterCategory, postcards, filterSubCategory]);
 
-            // ★ 計算在目前大類別下，可用的子類別
+            // ★ 動態產生可用的子類別選單
             const availableSubCategoriesForFilter = useMemo(() => {
                 if (filterCategory === "全部") {
                     return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.series).filter(Boolean))].sort();
@@ -562,9 +567,12 @@
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
             
-            // 這是給新增/編輯表單用的子類別清單
+            // 給新增/編輯表單用的子類別清單
             const formAvailableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
 
+            const typeFilters = ["全部", "蘑菇", "花點", "隱藏"];
+
+            // ★ 套用所有的篩選條件
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
@@ -573,7 +581,6 @@
                 const matchesSearch = (item.name || "").toLowerCase().includes(s) || (item.type || "").toLowerCase().includes(s) || (item.series || "").toLowerCase().includes(s) || (item.region || "").toLowerCase().includes(s);
                 
                 if (mainTab === '明信片') {
-                    // ★ 加入大類別篩選、子類別篩選與點位屬性篩選
                     const matchesCategory = filterCategory === "全部" || item.category === filterCategory;
                     const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
                     const matchesType = filterType === "全部" || item.type === filterType;
