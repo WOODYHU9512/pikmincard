@@ -144,6 +144,7 @@
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             
+            // ★ formData 初始化
             const [formData, setFormData] = useState({ 
                 mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", type: "蘑菇", imageUrl: "", note: ""
             });
@@ -350,18 +351,24 @@
                 try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
+            // ★ 確保每次打開時，資料都是乾淨的
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
                     setFormData({ 
-                        imageUrl: "", mainType: "明信片", ...item
+                        imageUrl: "", note: "", ...item
                     });
                     setLocationText(item.region || ""); 
                     setSelectedFileState(null);
                 } else {
                     setEditingItem(null);
                     setFormData({ 
-                        mainType: mainTab, category: filterCategory === "全部" ? "" : filterCategory, series: filterSubCategory === "全部" ? "" : filterSubCategory, name: "", lat: "", lng: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", note: ""
+                        mainType: mainTab, 
+                        category: filterCategory === "全部" ? "" : filterCategory, 
+                        series: filterSubCategory === "全部" ? "" : filterSubCategory, 
+                        name: "", lat: "", lng: "", 
+                        type: mainTab === '明信片' ? "蘑菇" : "", 
+                        imageUrl: "", note: ""
                     });
                     setLocationText("");
                     setSelectedFileState(null);
@@ -393,14 +400,14 @@
                     const newItem = {
                         id: docId,
                         mainType: formData.mainType,
-                        name: formData.name.trim(),
-                        category: formData.category,
-                        series: formData.series,
-                        type: formData.type,
-                        lat: formData.lat,
-                        lng: formData.lng,
-                        region: locationText, 
-                        imageUrl: finalImageUrl,
+                        name: formData.name ? formData.name.trim() : "",
+                        category: formData.category || "",
+                        series: formData.series || "",
+                        type: formData.type || "",
+                        lat: formData.lat || "",
+                        lng: formData.lng || "",
+                        region: locationText || "", 
+                        imageUrl: finalImageUrl || "",
                         note: formData.note ? formData.note.trim() : "",
                         lastUpdated: timestamp
                     };
@@ -585,9 +592,14 @@
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
             
-            // ★ 修正錯誤：讓新增表單可以正確讀取「明信片」的可用子類別選項，並確保過濾空值
+            // ★ 修正：確保在讀取時可以正確過濾，就算沒有選擇任何類別也不會壞掉
             const formAvailableSubCategories = useMemo(() => {
-                return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
+                const filtered = postcards.filter(p => {
+                    if ((p.mainType || '明信片') !== '明信片') return false;
+                    if (formData.category && p.category !== formData.category) return false;
+                    return true;
+                });
+                return [...new Set(filtered.map(p => p.series).filter(Boolean))].sort();
             }, [postcards, formData.category]);
 
             const displayedItems = postcards.filter(item => {
