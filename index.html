@@ -117,10 +117,8 @@
             const [postcards, setPostcards] = useState([]);
             const [loading, setLoading] = useState(true);
             const [mainTab, setMainTab] = useState('明信片');
-            
-            const [filterCategory, setFilterCategory] = useState("全部");
-            const [filterSubCategory, setFilterSubCategory] = useState("全部");
-            const [filterType, setFilterType] = useState("全部"); 
+            const [activeCategory, setActiveCategory] = useState("全部");
+            const [activeType, setActiveType] = useState("全部"); 
             const [searchTerm, setSearchTerm] = useState("");
             
             const [isModalOpen, setIsModalOpen] = useState(false);
@@ -143,7 +141,6 @@
             const [isDetectingLocation, setIsDetectingLocation] = useState(false);
             const [isFetchingGPS, setIsFetchingGPS] = useState(false);
 
-            // ★ 修正：從 postcards 計算最後更新時間，而不是幽靈變數 flowers
             const lastUpdatedTime = useMemo(() => {
                 if (!postcards || postcards.length === 0) return "無紀錄";
                 const validDates = postcards.map(p => new Date(p.lastUpdated || 0)).filter(d => !isNaN(d.getTime()));
@@ -180,9 +177,8 @@
             }, []);
 
             useEffect(() => {
-                setFilterCategory("全部");
-                setFilterSubCategory("全部");
-                setFilterType("全部");
+                setActiveCategory("全部");
+                setActiveType("全部");
                 setSearchTerm("");
             }, [mainTab]);
 
@@ -343,7 +339,6 @@
                 try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
-            // ★ 修正：將原本綁定錯的 handleOpenModalNew 移除，全部統一使用 handleOpenModal
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
@@ -543,9 +538,7 @@
             };
 
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
-            const categories = ["全部", ...availableCategories];
             
-            // ★ 當大類別改變時，檢查並重置子類別
             useEffect(() => {
                 if (filterCategory !== "全部") {
                     const subCatsInCurrentCategory = [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))];
@@ -555,7 +548,6 @@
                 }
             }, [filterCategory, postcards, filterSubCategory]);
 
-            // ★ 動態產生可用的子類別選單
             const availableSubCategoriesForFilter = useMemo(() => {
                 if (filterCategory === "全部") {
                     return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.series).filter(Boolean))].sort();
@@ -567,12 +559,8 @@
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
             
-            // 給新增/編輯表單用的子類別清單
             const formAvailableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
 
-            const typeFilters = ["全部", "蘑菇", "花點", "隱藏"];
-
-            // ★ 套用所有的篩選條件
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
@@ -585,8 +573,14 @@
                     const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
                     const matchesType = filterType === "全部" || item.type === filterType;
                     return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
-                } else {
-                    return matchesSearch;
+                } else if (mainTab === '純點') {
+                    // ★ 新增：純點的分類篩選邏輯
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesType && matchesSearch;
+                } else if (mainTab === '活動金盆') {
+                    // ★ 新增：活動金盆的分類篩選邏輯
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesType && matchesSearch;
                 }
             });
 
@@ -676,9 +670,30 @@
                                     </div>
                                 )}
 
-                                {mainTab !== '明信片' && (
-                                    <div className="mb-8">
-                                        <div className="relative w-full md:w-64"><div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div><input type="text" placeholder="搜尋名稱/地區..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" /></div>
+                                {/* ★ 新增：純點與活動金盆的下拉篩選 */}
+                                {(mainTab === '純點' || mainTab === '活動金盆') && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">{mainTab === '純點' ? '純點分類' : '活動類型'}</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterType}
+                                                onChange={e => setFilterType(e.target.value)}
+                                            >
+                                                <option value="全部">全部</option>
+                                                {mainTab === '純點' 
+                                                    ? availablePureTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                    : availableEventTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                <input type="text" placeholder="名稱/地區..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                                 
