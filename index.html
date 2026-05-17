@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin 座標圖鑑</title>
+    <title>Pikmin Bloom 明信片座標圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -111,6 +111,16 @@
             );
         };
 
+        // ★ 新增：格式化時間的工具函數
+        const formatDateTime = (isoString) => {
+            if (!isoString) return "無紀錄";
+            const d = new Date(isoString);
+            if (isNaN(d.getTime())) return "無紀錄";
+            
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+
         const App = () => {
             const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
@@ -143,12 +153,11 @@
             const [isDetectingLocation, setIsDetectingLocation] = useState(false);
             const [isFetchingGPS, setIsFetchingGPS] = useState(false);
 
-            const lastUpdatedTime = useMemo(() => {
+            // ★ 全域最後更新時間
+            const globalLastUpdated = useMemo(() => {
                 if (!postcards || postcards.length === 0) return "無紀錄";
-                const validDates = postcards.map(p => new Date(p.lastUpdated || 0)).filter(d => !isNaN(d.getTime()));
-                if (validDates.length === 0) return "無紀錄";
-                const latestDate = new Date(Math.max(...validDates));
-                return `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(2, '0')}-${String(latestDate.getDate()).padStart(2, '0')}`;
+                const latestDoc = [...postcards].sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0))[0];
+                return formatDateTime(latestDoc.lastUpdated);
             }, [postcards]);
 
             useEffect(() => {
@@ -541,6 +550,7 @@
             };
 
             const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            const categories = ["全部", ...availableCategories];
             
             useEffect(() => {
                 if (filterCategory !== "全部") {
@@ -582,10 +592,18 @@
                 }
             });
 
+            // ★ 新增：計算每個大群組的最新更新時間
             const groupedPostcards = displayedItems.reduce((groups, item) => {
                 const key = mainTab === '明信片' ? (item.series || "未分類") : (item.type || "未分類");
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(item);
+                if (!groups[key]) groups[key] = { items: [], lastUpdated: null };
+                groups[key].items.push(item);
+                
+                // 比較並記錄該群組最新的一筆時間
+                const itemTime = new Date(item.lastUpdated || 0).getTime();
+                if (!groups[key].lastUpdated || itemTime > groups[key].lastUpdated) {
+                    groups[key].lastUpdated = itemTime;
+                }
+                
                 return groups;
             }, {});
 
@@ -593,7 +611,14 @@
                 <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
                     <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-2"><Icon path={ICONS.Leaf} /><h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1></div>
+                            <div className="flex items-center gap-2">
+                                <Icon path={ICONS.Leaf} className="text-emerald-100" />
+                                <div className="flex flex-col">
+                                    <h1 className="text-xl font-bold">Pikmin Bloom 座標圖鑑</h1>
+                                    {/* ★ 全站最後更新時間 */}
+                                    <span className="text-[10px] text-emerald-200 font-medium tracking-wider">最新更新: {globalLastUpdated}</span>
+                                </div>
+                            </div>
                             <div className="flex gap-2 items-center">
                                 <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
                                 {isAdmin && (
@@ -700,17 +725,23 @@
                                             找不到符合條件的資料喔！
                                         </div>
                                     ) : (
-                                        Object.entries(groupedPostcards).map(([groupKey, items]) => (
+                                        Object.entries(groupedPostcards).map(([groupKey, groupData]) => (
                                             <section key={groupKey}>
                                                 <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
-                                                    <h2 className="text-xl font-bold text-slate-700">{groupKey}</h2>
-                                                    <span className="text-xs font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full">{items.length} 筆</span>
+                                                    <div className="flex flex-col">
+                                                        <h2 className="text-xl font-bold text-slate-700 leading-tight">{groupKey}</h2>
+                                                        {/* ★ 每個大項目的最後修改時間 */}
+                                                        <span className="text-[10px] text-slate-400 font-bold tracking-wide">
+                                                            上次更新: {formatDateTime(groupData.lastUpdated)}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full ml-1">{groupData.items.length} 筆</span>
                                                     {isAdmin && (
-                                                        <button onClick={() => handleGroupDelete(groupKey, items)} className="text-slate-300 hover:text-red-500 transition-colors ml-auto"><Icon path={ICONS.Trash2} /></button>
+                                                        <button onClick={() => handleGroupDelete(groupKey, groupData.items)} className="text-slate-300 hover:text-red-500 transition-colors ml-auto"><Icon path={ICONS.Trash2} /></button>
                                                     )}
                                                 </div>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                                    {items.map(item => (
+                                                    {groupData.items.map(item => (
                                                         <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group">
                                                             {isAdmin && (
                                                                 <>
@@ -742,7 +773,6 @@
                                                             {mainTab === '純點' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                             {mainTab === '活動金盆' && (<div className="mb-3"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                             
-                                                            {/* ★ 修正：純點分頁不顯示點位名稱 */}
                                                             {mainTab !== '純點' && (
                                                                 <h3 className="text-base font-bold text-slate-800 mb-3 break-words leading-snug">{item.name || '未命名項目'}</h3>
                                                             )}
@@ -851,7 +881,6 @@
                                                     {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
                                                 </datalist>
                                             </div>
-                                            {/* ★ 修正：表單中若為純點，不顯示點位名稱欄位 */}
                                             {formData.mainType !== '純點' && (
                                                 <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北地下街任天堂旗艦店" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                             )}
