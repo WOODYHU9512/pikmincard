@@ -144,7 +144,6 @@
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             
-            // ★ formData 新增 note (備註) 欄位
             const [formData, setFormData] = useState({ 
                 mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", type: "蘑菇", imageUrl: "", note: ""
             });
@@ -402,7 +401,7 @@
                         lng: formData.lng,
                         region: locationText, 
                         imageUrl: finalImageUrl,
-                        note: formData.note ? formData.note.trim() : "", // ★ 儲存備註
+                        note: formData.note ? formData.note.trim() : "",
                         lastUpdated: timestamp
                     };
 
@@ -482,7 +481,6 @@
 
                 if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
 
-                // ★ 匯出 CSV 加入備註欄位
                 const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地區", "緯度", "經度", "備註", "最後更新時間", "圖片連結"];
                 const csvContent = [headers.join(","), ...exportData.map(item => [
                     item.id, 
@@ -494,7 +492,7 @@
                     `"${item.region || ''}"`, 
                     item.lat, 
                     item.lng, 
-                    `"${item.note || ''}"`, // ★
+                    `"${item.note || ''}"`, 
                     item.lastUpdated, 
                     `"${item.imageUrl || ''}"`
                 ].join(","))].join("\n");
@@ -545,11 +543,10 @@
                             const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
                             let importedName = cols[4];
                             
-                            // ★ 匯入時讀取第 9 欄位的備註 (依據匯出的順序)
                             const item = {
                                 id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
                                 name: importedName, type: cols[5] || '', region: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
-                                note: cols[9] || '', // ★
+                                note: cols[9] || '', 
                                 lastUpdated: cols[10] || new Date().toISOString(), imageUrl: cols[11] || ''
                             };
                             return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
@@ -588,14 +585,16 @@
             const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
             const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
             
-            const formAvailableSubCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
+            // ★ 修正錯誤：讓新增表單可以正確讀取「明信片」的可用子類別選項，並確保過濾空值
+            const formAvailableSubCategories = useMemo(() => {
+                return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片' && (!formData.category || p.category === formData.category)).map(p => p.series).filter(Boolean))].sort();
+            }, [postcards, formData.category]);
 
             const displayedItems = postcards.filter(item => {
                 const itemMainType = item.mainType || '明信片';
                 if (itemMainType !== mainTab) return false;
                 
                 const s = searchTerm.toLowerCase();
-                // ★ 搜尋條件加入備註 (item.note)
                 const matchesSearch = (item.name || "").toLowerCase().includes(s) || 
                                       (item.type || "").toLowerCase().includes(s) || 
                                       (item.series || "").toLowerCase().includes(s) || 
@@ -815,7 +814,6 @@
                                                                         </button>
                                                                     </div>
                                                                     
-                                                                    {/* ★ 顯示備註區塊 */}
                                                                     {item.note && (
                                                                         <div className="mt-3 bg-yellow-50/50 border border-yellow-100 rounded p-2 pt-1.5">
                                                                             <div className="text-[10px] font-bold text-yellow-600 mb-0.5 flex items-center gap-1"><Icon path={ICONS.FileText} className="w-3 h-3"/> 備註</div>
@@ -935,7 +933,6 @@
                                         </div>
                                     </div>
                                     
-                                    {/* ★ 新增：備註欄位 */}
                                     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-emerald-500 transition-shadow">
                                         <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
                                             <Icon path={ICONS.FileText} className="text-slate-500 w-4 h-4" />
