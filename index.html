@@ -116,7 +116,6 @@
             if (!isoString) return "無紀錄";
             const d = new Date(isoString);
             if (isNaN(d.getTime())) return "無紀錄";
-            
             const pad = (n) => String(n).padStart(2, '0');
             return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
         };
@@ -128,6 +127,7 @@
             const [loading, setLoading] = useState(true);
             const [mainTab, setMainTab] = useState('明信片');
             
+            const [filterRegion, setFilterRegion] = useState("全部"); // ★ 新增：地區篩選
             const [filterCategory, setFilterCategory] = useState("全部");
             const [filterSubCategory, setFilterSubCategory] = useState("全部");
             const [filterType, setFilterType] = useState("全部"); 
@@ -144,7 +144,6 @@
             const fileInputRef = useRef(null);
             const csvInputRef = useRef(null);
             
-            // ★ formData 初始化
             const [formData, setFormData] = useState({ 
                 mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", type: "蘑菇", imageUrl: "", note: ""
             });
@@ -188,6 +187,7 @@
             }, []);
 
             useEffect(() => {
+                setFilterRegion("全部");
                 setFilterCategory("全部");
                 setFilterSubCategory("全部");
                 setFilterType("全部");
@@ -218,7 +218,6 @@
                         if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
 
                         let textParts = [];
-                        
                         if (countryCode === 'TW') {
                             if (level1) textParts.push(level1);
                             if (level2 && level2 !== level1) textParts.push(level2);
@@ -227,7 +226,6 @@
                             if (level1 && level1 !== cName) textParts.push(level1);
                             if (level2 && level2 !== level1 && level2 !== cName) textParts.push(level2);
                         }
-                        
                         setLocationText(textParts.join(" ") || "未知地點");
                     } else {
                         setLocationText("未知地點");
@@ -351,12 +349,11 @@
                 try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
-            // ★ 確保每次打開時，資料都是乾淨的
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
                     setFormData({ 
-                        imageUrl: "", note: "", ...item
+                        imageUrl: "", mainType: "明信片", ...item
                     });
                     setLocationText(item.region || ""); 
                     setSelectedFileState(null);
@@ -366,9 +363,7 @@
                         mainType: mainTab, 
                         category: filterCategory === "全部" ? "" : filterCategory, 
                         series: filterSubCategory === "全部" ? "" : filterSubCategory, 
-                        name: "", lat: "", lng: "", 
-                        type: mainTab === '明信片' ? "蘑菇" : "", 
-                        imageUrl: "", note: ""
+                        name: "", lat: "", lng: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", note: ""
                     });
                     setLocationText("");
                     setSelectedFileState(null);
@@ -570,8 +565,21 @@
                 reader.readAsText(file);
             };
 
-            const availableCategories = [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            // ★ 穩定產生的過濾選項
+            const availableCategories = useMemo(() => {
+                return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            }, [postcards]);
             
+            // ★ 新增：動態產生可用「地區」的清單 (擷取字串第一個詞或是包含市區的字眼)
+            const availableRegions = useMemo(() => {
+                const regions = postcards.map(p => {
+                    if (!p.region) return null;
+                    const parts = p.region.split(" ");
+                    return parts.length > 1 ? parts[1] : parts[0];
+                }).filter(Boolean);
+                return [...new Set(regions)].sort();
+            }, [postcards]);
+
             useEffect(() => {
                 if (filterCategory !== "全部") {
                     const subCatsInCurrentCategory = [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))];
@@ -589,10 +597,15 @@
                 }
             }, [postcards, filterCategory]);
 
-            const availablePureTypes = [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
-            const availableEventTypes = [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
+            const availablePureTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
             
-            // ★ 修正：確保在讀取時可以正確過濾，就算沒有選擇任何類別也不會壞掉
+            const availableEventTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            // ★ 修正：完美的子類別綁定 (使用 useMemo 防呆)
             const formAvailableSubCategories = useMemo(() => {
                 const filtered = postcards.filter(p => {
                     if ((p.mainType || '明信片') !== '明信片') return false;
@@ -612,15 +625,22 @@
                                       (item.series || "").toLowerCase().includes(s) || 
                                       (item.region || "").toLowerCase().includes(s) ||
                                       (item.note || "").toLowerCase().includes(s);
+                                      
+                // 判斷地區過濾
+                let matchesRegion = true;
+                if (filterRegion !== "全部") {
+                    const itemCity = item.region ? (item.region.split(' ').length > 1 ? item.region.split(' ')[1] : item.region.split(' ')[0]) : "";
+                    matchesRegion = itemCity === filterRegion;
+                }
                 
                 if (mainTab === '明信片') {
                     const matchesCategory = filterCategory === "全部" || item.category === filterCategory;
                     const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
                     const matchesType = filterType === "全部" || item.type === filterType;
-                    return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
-                } else if (mainTab === '純點' || mainTab === '活動金盆') {
+                    return matchesCategory && matchesSubCategory && matchesType && matchesRegion && matchesSearch;
+                } else {
                     const matchesType = filterType === "全部" || item.type === filterType;
-                    return matchesType && matchesSearch;
+                    return matchesType && matchesRegion && matchesSearch;
                 }
             });
 
@@ -674,79 +694,92 @@
                                     <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
                                 </div>
                                 
-                                {mainTab === '明信片' && (
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">大類別</label>
-                                            <select 
-                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                                value={filterCategory}
-                                                onChange={e => setFilterCategory(e.target.value)}
-                                            >
-                                                <option value="全部">全部</option>
-                                                {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">子類別</label>
-                                            <select 
-                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
-                                                value={filterSubCategory}
-                                                onChange={e => setFilterSubCategory(e.target.value)}
-                                                disabled={availableSubCategoriesForFilter.length === 0}
-                                            >
-                                                <option value="全部">全部</option>
-                                                {availableSubCategoriesForFilter.map(subCat => <option key={subCat} value={subCat}>{subCat}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">點位屬性</label>
-                                            <select 
-                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                                value={filterType}
-                                                onChange={e => setFilterType(e.target.value)}
-                                            >
-                                                <option value="全部">全部</option>
-                                                <option value="蘑菇">蘑菇</option>
-                                                <option value="花點">花點</option>
-                                                <option value="隱藏">隱藏</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
-                                            <div className="relative w-full">
-                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
-                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
-                                            </div>
-                                        </div>
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                    {/* ★ 全域地區篩選器 (所有分頁都共用) */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-500 mb-1">地區</label>
+                                        <select 
+                                            className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                            value={filterRegion}
+                                            onChange={e => setFilterRegion(e.target.value)}
+                                        >
+                                            <option value="全部">全部地區</option>
+                                            {availableRegions.map(r => <option key={r} value={r}>{r}</option>)}
+                                        </select>
                                     </div>
-                                )}
-
-                                {(mainTab === '純點' || mainTab === '活動金盆') && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">{mainTab === '純點' ? '純點分類' : '活動類型'}</label>
-                                            <select 
-                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                                                value={filterType}
-                                                onChange={e => setFilterType(e.target.value)}
-                                            >
-                                                <option value="全部">全部</option>
-                                                {mainTab === '純點' 
-                                                    ? availablePureTypes.map(t => <option key={t} value={t}>{t}</option>)
-                                                    : availableEventTypes.map(t => <option key={t} value={t}>{t}</option>)
-                                                }
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
-                                            <div className="relative w-full">
-                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
-                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                    
+                                    {mainTab === '明信片' ? (
+                                        <>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">大類別</label>
+                                                <select 
+                                                    className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                    value={filterCategory}
+                                                    onChange={e => setFilterCategory(e.target.value)}
+                                                >
+                                                    <option value="全部">全部</option>
+                                                    {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                                </select>
                                             </div>
-                                        </div>
-                                    </div>
-                                )}
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">子類別</label>
+                                                <select 
+                                                    className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                                                    value={filterSubCategory}
+                                                    onChange={e => setFilterSubCategory(e.target.value)}
+                                                    disabled={availableSubCategoriesForFilter.length === 0}
+                                                >
+                                                    <option value="全部">全部</option>
+                                                    {availableSubCategoriesForFilter.map(subCat => <option key={subCat} value={subCat}>{subCat}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">點位屬性</label>
+                                                <select 
+                                                    className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                    value={filterType}
+                                                    onChange={e => setFilterType(e.target.value)}
+                                                >
+                                                    <option value="全部">全部</option>
+                                                    <option value="蘑菇">蘑菇</option>
+                                                    <option value="花點">花點</option>
+                                                    <option value="隱藏">隱藏</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                                <div className="relative w-full">
+                                                    <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                    <input type="text" placeholder="名稱/地區..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                                </div>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">{mainTab === '純點' ? '純點分類' : '活動類型'}</label>
+                                                <select 
+                                                    className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                    value={filterType}
+                                                    onChange={e => setFilterType(e.target.value)}
+                                                >
+                                                    <option value="全部">全部</option>
+                                                    {mainTab === '純點' 
+                                                        ? availablePureTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                        : availableEventTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                                <div className="relative w-full">
+                                                    <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                    <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                                 
                                 <div className="space-y-8">
                                     {displayedItems.length === 0 ? (
@@ -894,30 +927,30 @@
                                                 )}
                                             </div>
                                             <div className="grid grid-cols-2 gap-4">
-                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">大類別</label><input list="cat-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 動物園" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">大類別</label><input list="cat-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 動物園" value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
                                                 <div>
                                                     <label className="text-xs font-bold text-slate-500 block mb-1.5">點位屬性</label>
-                                                    <select className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm bg-white" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                    <select className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm bg-white" value={formData.type || ''} onChange={e => setFormData({ ...formData, type: e.target.value })}>
                                                         <option value="蘑菇">🍄 蘑菇</option>
                                                         <option value="花點">🌸 花點</option>
                                                         <option value="隱藏">❓ 隱藏點</option>
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">子類別</label><input list="form-sub-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北市立動物園" value={formData.series} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="form-sub-opts">{formAvailableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
-                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 企鵝館看板" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">子類別</label><input list="form-sub-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北市立動物園" value={formData.series || ''} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="form-sub-opts">{formAvailableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 企鵝館看板" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                         </>
                                     ) : (
                                         <>
                                             <div>
                                                 <label className="text-xs font-bold text-slate-500 block mb-1.5">{formData.mainType === '活動金盆' ? '活動類型' : '純點分類'}</label>
-                                                <input list="pure-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 2024週年慶" value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                                <input list="pure-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 2024週年慶" value={formData.type || ''} onChange={e => setFormData({ ...formData, type: e.target.value })} />
                                                 <datalist id="pure-opts">
                                                     {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
                                                 </datalist>
                                             </div>
                                             {formData.mainType !== '純點' && (
-                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北地下街任天堂旗艦店" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北地下街任天堂旗艦店" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
                                             )}
                                         </>
                                     )}
@@ -932,8 +965,8 @@
                                             </button>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">緯度 (Lat)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
-                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">經度 (Lng)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">緯度 (Lat)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lat || ''} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
+                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">經度 (Lng)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lng || ''} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
                                         </div>
                                         <div className="flex items-center gap-2 pt-1 bg-white p-2 rounded border border-slate-100 shadow-sm">
                                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">系統辨識地區</span>
@@ -954,7 +987,7 @@
                                             rows="2" 
                                             className="w-full p-3 text-sm border-0 outline-none resize-none placeholder:text-slate-300"
                                             placeholder="可以在這裡記錄該點位的注意事項或細節..."
-                                            value={formData.note}
+                                            value={formData.note || ''}
                                             onChange={e => setFormData({ ...formData, note: e.target.value })}
                                         ></textarea>
                                     </div>
