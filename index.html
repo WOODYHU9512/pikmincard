@@ -561,7 +561,6 @@
                 reader.readAsText(file);
             };
 
-            // ★ 修正：安全的提取大類別
             const availableCategories = useMemo(() => {
                 return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
             }, [postcards]);
@@ -577,7 +576,6 @@
                 }
             }, [filterCategory, postcards, filterSubCategory]);
 
-            // ★ 修正：安全的提取子類別
             const availableSubCategoriesForFilter = useMemo(() => {
                 if (filterCategory === "全部") {
                     return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.series).filter(Boolean))].sort();
@@ -594,7 +592,6 @@
                 return [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
             }, [postcards]);
             
-            // ★ 修正：表單用的子類別清單
             const formAvailableSubCategories = useMemo(() => {
                 const filtered = postcards.filter(p => {
                     if ((p.mainType || '明信片') !== '明信片') return false;
@@ -620,7 +617,7 @@
                     const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
                     const matchesType = filterType === "全部" || item.type === filterType;
                     return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
-                } else {
+                } else if (mainTab === '純點' || mainTab === '活動金盆') {
                     const matchesType = filterType === "全部" || item.type === filterType;
                     return matchesType && matchesSearch;
                 }
@@ -646,7 +643,7 @@
                             <div className="flex items-center gap-2">
                                 <Icon path={ICONS.Leaf} className="text-emerald-100" />
                                 <div className="flex flex-col">
-                                    <h1 className="text-xl font-bold">Pikmin 座標圖鑑</h1>
+                                    <h1 className="text-xl font-bold">Pikmin Bloom 座標圖鑑</h1>
                                     <span className="text-[10px] text-emerald-200 font-medium tracking-wider">最新更新: {globalLastUpdated}</span>
                                 </div>
                             </div>
@@ -769,9 +766,9 @@
                                                         <button onClick={() => handleGroupDelete(groupKey, groupData.items)} className="text-slate-300 hover:text-red-500 transition-colors ml-auto"><Icon path={ICONS.Trash2} /></button>
                                                     )}
                                                 </div>
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
                                                     {groupData.items.map(item => (
-                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group flex flex-col h-full">
+                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 relative group flex flex-col">
                                                             {isAdmin && (
                                                                 <>
                                                                     <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
@@ -784,29 +781,27 @@
                                                             {mainTab === '明信片' && (
                                                                 <>
                                                                     {item.imageUrl && (
-                                                                        <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0">
+                                                                        <div className="mb-3 -mx-4 -mt-4 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0">
                                                                             <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
                                                                         </div>
                                                                     )}
-                                                                    <div className={`mb-3 flex items-center justify-between shrink-0 ${!item.imageUrl ? '' : 'pt-1'}`}>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                                                                                item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
-                                                                                item.type === '花點' ? 'bg-pink-100 text-pink-700' : 'bg-indigo-100 text-indigo-700'
-                                                                            }`}>{item.type}</span>
-                                                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
-                                                                        </div>
+                                                                    <div className="mb-2 flex items-center gap-2 shrink-0">
+                                                                        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                            item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                            item.type === '花點' ? 'bg-pink-100 text-pink-700' : 'bg-indigo-100 text-indigo-700'
+                                                                        }`}>{item.type}</span>
+                                                                        <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
                                                                     </div>
                                                                 </>
                                                             )}
-                                                            {mainTab === '純點' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
-                                                            {mainTab === '活動金盆' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            {mainTab === '純點' && (<div className="mb-2 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            {mainTab === '活動金盆' && (<div className="mb-2 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                             
                                                             {mainTab !== '純點' && (
-                                                                <h3 className="text-base font-bold text-slate-800 mb-3 break-words leading-snug shrink-0">{item.name || '未命名項目'}</h3>
+                                                                <h3 className="text-base font-bold text-slate-800 mb-2 break-words leading-snug shrink-0">{item.name || '未命名項目'}</h3>
                                                             )}
 
-                                                            <div className="space-y-3 text-sm text-slate-600 flex-1 flex flex-col justify-end mt-auto pt-2">
+                                                            <div className="space-y-2.5 text-sm text-slate-600 mt-1">
                                                                 <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
                                                                     {item.region ? (
                                                                         <div className="flex flex-col mb-2 pb-2 border-b border-slate-200/50">
