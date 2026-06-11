@@ -12,7 +12,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; }
-        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        /* 隱藏數字輸入框的上下箭頭 */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        /* 捲動條美化 */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -110,13 +113,34 @@
                         return;
                     }
 
+                    // ★ 雙層防護機制：1. 沒 CORS 的開源 API -> 2. 有 CORS 透過代理去撈舊 API
                     window.__TZ_PENDING[cacheKey] = (async () => {
                         try {
-                            const res = await fetch(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
-                            if (!res.ok) throw new Error('API_FAIL');
-                            const data = await res.json();
-                            if (data && data.timeZone) {
-                                window.__TZ_CACHE[cacheKey] = data.timeZone;
+                            let tz = null;
+                            
+                            // 嘗試 1: 使用完全開源無 CORS 限制的座標時區 API
+                            try {
+                                const res = await fetch(`https://api.wheretheiss.at/v1/coordinates/${lat},${lng}`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data && data.timezone_id) tz = data.timezone_id;
+                                }
+                            } catch (e) {
+                                console.warn("Primary Time API failed, trying fallback...");
+                            }
+
+                            // 嘗試 2: 如果上面失敗了，透過 allorigins Proxy 來呼叫原本的 API
+                            if (!tz) {
+                                const targetUrl = encodeURIComponent(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
+                                const res2 = await fetch(`https://api.allorigins.win/raw?url=${targetUrl}`);
+                                if (res2.ok) {
+                                    const data2 = await res2.json();
+                                    if (data2 && data2.timeZone) tz = data2.timeZone;
+                                }
+                            }
+
+                            if (tz) {
+                                window.__TZ_CACHE[cacheKey] = tz;
                             } else {
                                 throw new Error('NO_TZ');
                             }
@@ -301,7 +325,6 @@
                 return () => clearTimeout(timeoutId);
             }, [formData.lat, formData.lng, detectLocation]);
 
-            // ★ 補回來的：自動補全未知地點的處理函式
             const handleAutoFillRegions = async () => {
                 if (!isAdmin) return;
                 setIsAutoFilling(true);
