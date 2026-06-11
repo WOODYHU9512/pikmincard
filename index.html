@@ -12,8 +12,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; }
+        /* 隱藏數字輸入框的上下箭頭 */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        /* 捲動條美化 */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -77,7 +79,6 @@
             </svg>
         );
 
-        // ★ 全面改用 wheretheiss API，免去所有 CORS 封鎖紅字
         window.__TZ_CACHE = window.__TZ_CACHE || {};
         window.__TZ_PENDING = window.__TZ_PENDING || {};
 
@@ -93,8 +94,11 @@
                 const cacheKey = `${Math.round(lat)},${Math.round(lng)}`;
 
                 if (window.__TZ_CACHE[cacheKey]) {
-                    if (window.__TZ_CACHE[cacheKey] === 'error') setFailed(true);
-                    else setTimeZone(window.__TZ_CACHE[cacheKey]);
+                    if (window.__TZ_CACHE[cacheKey] === 'error') {
+                        setFailed(true);
+                    } else {
+                        setTimeZone(window.__TZ_CACHE[cacheKey]);
+                    }
                     return;
                 }
 
@@ -110,11 +114,28 @@
 
                     window.__TZ_PENDING[cacheKey] = (async () => {
                         try {
-                            const res = await fetch(`https://api.wheretheiss.at/v1/coordinates/${lat},${lng}`);
-                            if (!res.ok) throw new Error('API_FAIL');
-                            const data = await res.json();
-                            if (data && data.timezone_id) {
-                                window.__TZ_CACHE[cacheKey] = data.timezone_id;
+                            let tz = null;
+                            try {
+                                const res = await fetch(`https://api.wheretheiss.at/v1/coordinates/${lat},${lng}`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data && data.timezone_id) tz = data.timezone_id;
+                                }
+                            } catch (e) {
+                                console.warn("Primary Time API failed, trying fallback...");
+                            }
+
+                            if (!tz) {
+                                const targetUrl = encodeURIComponent(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
+                                const res2 = await fetch(`https://api.allorigins.win/raw?url=${targetUrl}`);
+                                if (res2.ok) {
+                                    const data2 = await res2.json();
+                                    if (data2 && data2.timeZone) tz = data2.timeZone;
+                                }
+                            }
+
+                            if (tz) {
+                                window.__TZ_CACHE[cacheKey] = tz;
                             } else {
                                 throw new Error('NO_TZ');
                             }
@@ -131,11 +152,14 @@
                 };
 
                 fetchTimezone();
+
             }, [lat, lng]);
 
             useEffect(() => {
                 if (!timeZone || failed) return;
-                const timer = setInterval(() => setNow(new Date()), 10000); 
+                const timer = setInterval(() => {
+                    setNow(new Date());
+                }, 10000); 
                 return () => clearInterval(timer);
             }, [timeZone, failed]);
 
@@ -183,6 +207,7 @@
             const [isImporting, setIsImporting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
             const [selectedIds, setSelectedIds] = useState(new Set());
+            
             const [isAutoFilling, setIsAutoFilling] = useState(false);
             const [autoFillProgress, setAutoFillProgress] = useState({ current: 0, total: 0 });
 
@@ -242,23 +267,25 @@
                 setSearchTerm("");
             }, [mainTab]);
 
+            // ★ 核心修復：全面改用 OpenStreetMap (Nominatim) 並加入經緯度防呆
             const detectLocation = useCallback(async (lat, lng) => {
-                const numLat = parseFloat(lat);
-                const numLng = parseFloat(lng);
+                let numLat = parseFloat(lat);
+                let numLng = parseFloat(lng);
                 
-                // ★ 防呆機制 1: 如果沒填完，直接不動作
                 if (isNaN(numLat) || isNaN(numLng)) {
                     setLocationText("");
                     return;
                 }
 
-                // ★ 防呆機制 2: 經緯度填反了，自動幫你對調
+                // 防呆：如果緯度大於90但經度小於90，通常是填反了，自動交換
                 if (Math.abs(numLat) > 90 && Math.abs(numLng) <= 90) {
-                    setFormData(prev => ({ ...prev, lat: lng, lng: lat }));
-                    return; // 狀態更新後會再次觸發 detectLocation，所以直接 return
+                    let temp = numLat;
+                    numLat = numLng;
+                    numLng = temp;
+                    // 同步更新表單數值
+                    setFormData(prev => ({ ...prev, lat: String(numLat), lng: String(numLng) }));
                 }
 
-                // ★ 防呆機制 3: 如果格式依然不合法，直接擋下不發送 API，避免 400 Bad Request
                 if (numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
                     setLocationText("座標格式無效");
                     return;
@@ -266,32 +293,26 @@
 
                 setIsDetectingLocation(true);
                 try {
-                    const baseRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${numLat}&longitude=${numLng}`);
-                    if (!baseRes.ok) throw new Error("API Limit or Error");
-                    const baseData = await baseRes.json();
-                    const countryCode = baseData.countryCode;
-
-                    const lang = ['TW', 'JP', 'KR'].includes(countryCode) ? 'zh-tw' : 'en';
-                    
-                    const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${numLat}&longitude=${numLng}&localityLanguage=${lang}`);
+                    // 使用免費且精準的 Nominatim API
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${numLat}&lon=${numLng}&accept-language=zh-TW`);
                     if (!res.ok) throw new Error("API Limit or Error");
                     const data = await res.json();
                     
-                    if (data) {
-                        let cName = data.countryName || "";
-                        let level1 = data.principalSubdivision || "";
-                        let level2 = data.locality || data.city || "";
-
-                        if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
-
+                    if (data && data.address) {
+                        const addr = data.address;
+                        let cName = addr.country || "";
+                        if (cName === "臺灣" || cName === "中華民國") cName = "台灣";
+                        
+                        let city = addr.city || addr.county || addr.state || "";
+                        let town = addr.town || addr.suburb || addr.village || addr.neighbourhood || "";
+                        
                         let textParts = [];
-                        if (countryCode === 'TW') {
-                            if (level1) textParts.push(level1);
-                            if (level2 && level2 !== level1) textParts.push(level2);
+                        if (cName === "台灣") {
+                            if (city) textParts.push(city);
+                            if (town && town !== city) textParts.push(town);
                         } else {
                             if (cName) textParts.push(cName);
-                            if (level1 && level1 !== cName) textParts.push(level1);
-                            if (level2 && level2 !== level1 && level2 !== cName) textParts.push(level2);
+                            if (city && city !== cName) textParts.push(city);
                         }
                         
                         setLocationText(textParts.join(" ").trim() || "未知地點");
@@ -299,6 +320,7 @@
                         setLocationText("未知地點");
                     }
                 } catch (error) {
+                    console.error("Geocoding error:", error);
                     setLocationText("無法辨識");
                 } finally {
                     setIsDetectingLocation(false);
@@ -329,41 +351,50 @@
                     let item = missingItems[i];
                     setAutoFillProgress({ current: i + 1, total: missingItems.length });
                     
-                    const numLat = parseFloat(item.lat);
-                    const numLng = parseFloat(item.lng);
+                    let numLat = parseFloat(item.lat);
+                    let numLng = parseFloat(item.lng);
+                    
+                    // 防呆
+                    if (Math.abs(numLat) > 90 && Math.abs(numLng) <= 90) {
+                        let temp = numLat;
+                        numLat = numLng;
+                        numLng = temp;
+                        item.lat = String(numLat);
+                        item.lng = String(numLng);
+                    }
+
                     if (isNaN(numLat) || isNaN(numLng) || numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
                         updates.push({ ...item, region: "無效座標格式" });
                         continue;
                     }
 
                     try {
-                        const baseRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${numLat}&longitude=${numLng}`);
-                        const baseData = await baseRes.json();
-                        const lang = ['TW', 'JP', 'KR'].includes(baseData.countryCode) ? 'zh-tw' : 'en';
+                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${numLat}&lon=${numLng}&accept-language=zh-TW`);
+                        const data = await res.json();
                         
-                        const resGeo = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${numLat}&longitude=${numLng}&localityLanguage=${lang}`);
-                        const dataGeo = await resGeo.json();
-                        
-                        let cName = dataGeo.countryName || "";
-                        let level1 = dataGeo.principalSubdivision || "";
-                        let level2 = dataGeo.locality || dataGeo.city || "";
-
-                        if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
-
-                        let textParts = [];
-                        if (baseData.countryCode === 'TW') {
-                            if (level1) textParts.push(level1);
-                            if (level2 && level2 !== level1) textParts.push(level2);
-                        } else {
-                            if (cName) textParts.push(cName);
-                            if (level1 && level1 !== cName) textParts.push(level1);
-                            if (level2 && level2 !== level1 && level2 !== cName) textParts.push(level2);
+                        let detectedRegion = "特殊座標(需手動)";
+                        if (data && data.address) {
+                            const addr = data.address;
+                            let cName = addr.country || "";
+                            if (cName === "臺灣" || cName === "中華民國") cName = "台灣";
+                            
+                            let city = addr.city || addr.county || addr.state || "";
+                            let town = addr.town || addr.suburb || addr.village || addr.neighbourhood || "";
+                            
+                            let textParts = [];
+                            if (cName === "台灣") {
+                                if (city) textParts.push(city);
+                                if (town && town !== city) textParts.push(town);
+                            } else {
+                                if (cName) textParts.push(cName);
+                                if (city && city !== cName) textParts.push(city);
+                            }
+                            detectedRegion = textParts.join(" ").trim() || (cName ? cName : "特殊座標(需手動)");
                         }
                         
-                        const detectedRegion = textParts.join(" ").trim() || (cName ? cName : "特殊座標(需手動)");
                         updates.push({ ...item, region: detectedRegion });
                         
-                        await new Promise(r => setTimeout(r, 400));
+                        await new Promise(r => setTimeout(r, 1000)); // 配合 Nominatim API 每秒1次的要求
                     } catch (e) {
                         console.error(`解析座標 ${item.lat},${item.lng} 失敗`, e);
                         updates.push({ ...item, region: "API解析失敗" });
@@ -490,18 +521,16 @@
             const handleOpenModal = (item = null) => {
                 if (item) {
                     setEditingItem(item);
-                    // 確保 undefined 時提供空字串，防止 React Uncontrolled input 警告
                     setFormData({ 
-                        imageUrl: item.imageUrl ?? "", 
-                        mainType: item.mainType ?? "明信片", 
-                        category: item.category ?? "", 
-                        series: item.series ?? "", 
-                        name: item.name ?? "", 
-                        lat: item.lat ?? "", 
-                        lng: item.lng ?? "", 
-                        type: item.type ?? "蘑菇", 
-                        note: item.note ?? "",
-                        id: item.id
+                        imageUrl: item.imageUrl || "", 
+                        mainType: item.mainType || "明信片", 
+                        category: item.category || "", 
+                        series: item.series || "", 
+                        name: item.name || "", 
+                        lat: String(item.lat || ""), 
+                        lng: String(item.lng || ""), 
+                        type: item.type || "蘑菇", 
+                        note: item.note || ""
                     });
                     setLocationText(item.region || ""); 
                     setSelectedFileState(null);
@@ -544,8 +573,8 @@
                         category: formData.category || "",
                         series: formData.series || "",
                         type: formData.type || "",
-                        lat: formData.lat || "",
-                        lng: formData.lng || "",
+                        lat: formData.lat ? String(formData.lat).trim() : "",
+                        lng: formData.lng ? String(formData.lng).trim() : "",
                         region: locationText || "", 
                         imageUrl: finalImageUrl || "",
                         note: formData.note ? formData.note.trim() : "",
