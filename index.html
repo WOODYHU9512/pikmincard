@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin Bloom 盆栽收成記錄器</title>
+    <title>Pikmin Bloom 明信片座標圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -12,754 +12,1064 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; }
+        /* 隱藏數字輸入框的上下箭頭 */
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        /* 捲動條美化 */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
-<body>
+<body class="bg-slate-50">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useRef, Fragment, useCallback, useMemo } = React;
 
-        // ★ 管理員登入密碼設定
-        const ADMIN_PASSWORD = "admin";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-        // ★★★ 請把你的網頁應用程式網址貼在這裡 ★★★
-        const GOOGLE_SHEETS_API_URL = "https://script.google.com/macros/s/AKfycbwgDoLcjCPHOA3hxj2CEZdXYO2K3lWSZASHg7Z0Yy5N83_82HoNf8MPp9kA6wtiBkwq/exec";
-
-        const PIKMIN_CATEGORIES = {
-            "餐廳": ["廚師帽子"], "咖啡廳": ["咖啡杯"], "甜點店": ["馬卡龍", "甜甜圈"], "電影院": ["爆米花"],
-            "藥局": ["牙刷"], "動物園": ["蒲公英"], "森林": ["鍬形蟲", "橡栗"], "水邊": ["擬餌"],
-            "郵局": ["郵票"], "美術館": ["畫框"], "機場": ["飛機玩具"], "車站": ["電車紙模型", "票券"],
-            "海灘": ["貝殼"], "漢堡店": ["漢堡"], "便利商店": ["瓶蓋", "零食"], "超市": ["蘑菇", "香蕉"],
-            "麵包店": ["法國麵包"], "美容院": ["剪刀"], "服飾店": ["髮圈"], "公園": ["幸運草", "四葉幸運草"],
-            "圖書館": ["迷你書"], "路邊": ["路邊"], "壽司餐廳": ["壽司"],
-            "山丘": ["山丘別針徽章"], "體育館": ["體育館鑰匙圈"], "五金行": ["工具"], "公車站": ["公車紙模型"],
-            "化妝品商店": ["化妝品"], "義式餐廳": ["披薩", "義大利麵"], "咖哩餐廳": ["一碗咖哩"],
-            "飯店": ["飯店備品"], "主題樂園": ["主題樂園門票"], "墨西哥餐廳": ["塔可餅"], "橋樑": ["橋樑別針"],
-            "神社和寺廟": ["大吉", "吉", "末吉"], "洗衣店": ["洗衣用品"], "拉麵店": ["拉麵鑰匙圈"],
-            "學校": ["校徽胸針"], "電器行": ["電池", "仙女燈"], "韓國餐廳": ["韓國泡菜"], "起司店": ["起司"],
-            "其他": ["其他"]
+        const firebaseConfig = {
+            apiKey: "AIzaSyDEsqE2MtAJnMGm17kwjnftuCcieV0z6Bc",
+            authDomain: "pikcardrecord.firebaseapp.com",
+            projectId: "pikcardrecord",
+            storageBucket: "pikcardrecord.firebasestorage.app",
+            messagingSenderId: "441551391616",
+            appId: "1:441551391616:web:8f6fe2c7f46bb6de038f65"
         };
 
-        const COLORS = [
-            { id: '紅', bg: 'bg-red-500', text: 'text-white' }, { id: '黃', bg: 'bg-yellow-400', text: 'text-yellow-900' },
-            { id: '藍', bg: 'bg-blue-500', text: 'text-white' }, { id: '紫', bg: 'bg-purple-600', text: 'text-white' },
-            { id: '白', bg: 'bg-white', text: 'text-gray-800', border: 'border border-gray-300' }, { id: '粉', bg: 'bg-pink-400', text: 'text-white' },
-            { id: '岩', bg: 'bg-gray-600', text: 'text-white' }, { id: '冰', bg: 'bg-cyan-300', text: 'text-cyan-900' }
-        ];
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const appId = 'pikmin-public-v1';
+        const ADMIN_EMAIL = "admin@pikmin.map"; 
 
-        const getEmptyColors = () => ({ '紅': 0, '黃': 0, '藍': 0, '紫': 0, '白': 0, '粉': 0, '岩': 0, '冰': 0 });
+        const ADMIN_PASSWORD = "admin";
 
-        const ColorCounter = ({ color, count, onChange, disabled }) => (
-            <div className={`flex flex-col items-center justify-between p-1.5 rounded-lg ${color.bg} ${color.text} ${color.border || ''} shadow-sm min-w-[3.5rem]`}>
-                <span className="text-[11px] font-black mb-1">{color.id}</span>
-                <div className="flex items-center gap-1 bg-black/10 rounded px-1 py-0.5 w-full justify-between">
-                    <button type="button" disabled={disabled} onClick={() => onChange(Math.max(0, count - 1))} className="w-4 h-4 flex items-center justify-center rounded hover:bg-black/20 font-mono text-xs disabled:opacity-30">-</button>
-                    <span className="text-xs font-black text-center">{count}</span>
-                    <button type="button" disabled={disabled} onClick={() => onChange(count + 1)} className="w-4 h-4 flex items-center justify-center rounded hover:bg-black/20 font-mono text-xs disabled:opacity-30">+</button>
-                </div>
-            </div>
+        const Icon = ({ path, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
         );
 
-        const TargetLocalClock = ({ lat, lng }) => {
-            const [timeStr, setTimeStr] = useState("");
+        const ICONS = {
+            Leaf: <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />,
+            Download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3" />,
+            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
+            Plus: <path d="M5 12h14 M12 5v14" />,
+            Search: <Fragment><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></Fragment>,
+            Edit2: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
+            Trash2: <path d="M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6" />,
+            MapPin: <Fragment><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></Fragment>,
+            Copy: <Fragment><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></Fragment>,
+            Check: <polyline points="20 6 9 17 4 12" />,
+            ExternalLink: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14 21 3" />,
+            AlertTriangle: <Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" x2="12" y1="9" y2="13" /><line x1="12" x2="12.01" y1="17" y2="17" /></Fragment>,
+            X: <path d="M18 6 6 18 M6 6l12 12" />,
+            Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
+            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
+            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>,
+            Clipboard: <Fragment><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></Fragment>,
+            Clock: <Fragment><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Fragment>,
+            FileText: <Fragment><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></Fragment>
+        };
+
+        const LocalTimeDisplay = ({ lat, lng }) => {
+            const [localTime, setLocalTime] = useState(null);
+            const [loading, setLoading] = useState(true);
+
             useEffect(() => {
                 let isMounted = true;
                 const fetchTime = async () => {
+                    if (!lat || !lng) return;
+                    setLoading(true);
                     try {
-                        const res = await fetch(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
-                        if (res.ok) {
-                            const data = await res.json();
-                            if (isMounted && data.currentLocalTime) setTimeStr(data.currentLocalTime.split('T')[1].slice(0, 5));
+                        const response = await fetch(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
+                        if (!response.ok) throw new Error('Time API error');
+                        const data = await response.json();
+                        
+                        if (isMounted && data.currentLocalTime) {
+                            const dateObj = new Date(data.currentLocalTime);
+                            const formattedTime = dateObj.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
+                            setLocalTime(formattedTime);
                         }
-                    } catch (e) {}
+                    } catch (error) {
+                        console.error("無法取得當地時間", error);
+                        if (isMounted) setLocalTime("無法取得");
+                    } finally {
+                        if (isMounted) setLoading(false);
+                    }
                 };
+
                 fetchTime();
-                const id = setInterval(fetchTime, 30000);
-                return () => { isMounted = false; clearInterval(id); };
+                const intervalId = setInterval(fetchTime, 60000);
+
+                return () => {
+                    isMounted = false;
+                    clearInterval(intervalId);
+                };
             }, [lat, lng]);
-            return timeStr ? <span className="text-xs bg-slate-700 text-emerald-300 px-2 py-0.5 rounded font-mono ml-2">當地現在: {timeStr}</span> : null;
+
+            if (loading) return <span className="text-slate-400 animate-pulse text-xs">計算中...</span>;
+            if (!localTime || localTime === "無法取得") return null;
+
+            return (
+                <div className="flex items-center gap-1 mt-1 text-slate-500 font-medium">
+                    <Icon path={ICONS.Clock} className="w-3 h-3 text-emerald-500" />
+                    <span className="text-[10px]">當地時間:</span>
+                    <span className="text-xs font-mono font-bold tracking-wider">{localTime}</span>
+                </div>
+            );
+        };
+
+        const formatDateTime = (isoString) => {
+            if (!isoString) return "無紀錄";
+            const d = new Date(isoString);
+            if (isNaN(d.getTime())) return "無紀錄";
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
         };
 
         const App = () => {
-            const [locations, setLocations] = useState([]);
-            const [isInitialLoading, setIsInitialLoading] = useState(true);
+            const [user, setUser] = useState(null);
             const [isAdmin, setIsAdmin] = useState(false);
+            const [postcards, setPostcards] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [mainTab, setMainTab] = useState('明信片');
             
-            const [lat, setLat] = useState("");
-            const [lng, setLng] = useState("");
-            const [region, setRegion] = useState("");
-            const [customName, setCustomName] = useState("");
-            const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
-            const [isDetecting, setIsDetecting] = useState(false);
-            const [isSaving, setIsSaving] = useState(false);
-            const [editingVisitId, setEditingVisitId] = useState(null);
+            const [filterCategory, setFilterCategory] = useState("全部");
+            const [filterSubCategory, setFilterSubCategory] = useState("全部");
+            const [filterType, setFilterType] = useState("全部"); 
+            const [searchTerm, setSearchTerm] = useState("");
             
-            const [expandedLocs, setExpandedLocs] = useState(new Set());
-            const [records, setRecords] = useState([
-                { id: Date.now(), category: "餐廳", subCategory: "廚師帽子", colors: getEmptyColors() }
-            ]);
-            
-            // ★ 新增：用於記錄是否正在自動補全地區
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingItem, setEditingItem] = useState(null);
+            const [deleteId, setDeleteId] = useState(null);
+            const [copyFeedback, setCopyFeedback] = useState(null);
+            const [isImporting, setIsImporting] = useState(false);
+            const [isUploading, setIsUploading] = useState(false);
+            const [selectedIds, setSelectedIds] = useState(new Set());
             const [isAutoFilling, setIsAutoFilling] = useState(false);
 
-            useEffect(() => {
-                localforage.config({ name: 'PikminHarvestTracker' });
-                if (sessionStorage.getItem('pikmin-admin-auth') === 'true') setIsAdmin(true);
+            const fileInputRef = useRef(null);
+            const csvInputRef = useRef(null);
+            
+            const [formData, setFormData] = useState({ 
+                mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", type: "蘑菇", imageUrl: "", note: ""
+            });
+            const [selectedFileState, setSelectedFileState] = useState(null);
 
-                if (GOOGLE_SHEETS_API_URL.startsWith("http")) {
-                    fetch(GOOGLE_SHEETS_API_URL)
-                        .then(res => res.json())
-                        .then(data => {
-                            setLocations(data);
-                            localforage.setItem('pikmin-seedlings', data);
-                            setIsInitialLoading(false);
-                        })
-                        .catch(err => {
-                            console.error("雲端讀取失敗，讀取本地備用庫");
-                            localforage.getItem('pikmin-seedlings').then(saved => {
-                                if (saved) setLocations(saved);
-                                setIsInitialLoading(false);
-                            });
-                        });
-                } else {
-                    localforage.getItem('pikmin-seedlings').then(saved => {
-                        if (saved) setLocations(saved);
-                        setIsInitialLoading(false);
-                    });
-                }
+            const [locationText, setLocationText] = useState("");
+            const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+            const [isFetchingGPS, setIsFetchingGPS] = useState(false);
+
+            const globalLastUpdated = useMemo(() => {
+                if (!postcards || postcards.length === 0) return "無紀錄";
+                const latestDoc = [...postcards].sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0))[0];
+                return formatDateTime(latestDoc.lastUpdated);
+            }, [postcards]);
+
+            // 計算缺乏地區的點位數量
+            const missingRegionsCount = useMemo(() => {
+                return postcards.filter(p => p.lat && p.lng && (!p.region || p.region === "未知地點" || p.region === "無法辨識")).length;
+            }, [postcards]);
+
+            useEffect(() => {
+                onAuthStateChanged(auth, (u) => {
+                    if (u) {
+                        setUser(u);
+                        setIsAdmin(u.email === ADMIN_EMAIL);
+                    } else {
+                        setUser(null);
+                        setIsAdmin(false);
+                        setSelectedIds(new Set());
+                    }
+                });
             }, []);
 
-            const syncToCloud = async (dataToSync) => {
-                if (!GOOGLE_SHEETS_API_URL.startsWith("http")) return;
-                try {
-                    await fetch(GOOGLE_SHEETS_API_URL, {
-                        method: "POST",
-                        body: JSON.stringify({ action: "sync_all", data: dataToSync })
-                    });
-                } catch (e) { console.error("雲端寫入失敗", e); }
-            };
+            useEffect(() => {
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
+                const unsubscribe = onSnapshot(q, async (snapshot) => {
+                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                    docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
+                    setPostcards(docs);
+                    setLoading(false);
+                }, (error) => { 
+                    console.error("Data sync error:", error); 
+                    setLoading(false); 
+                });
+                return () => unsubscribe();
+            }, []);
 
-            const handleAdminToggle = () => {
-                if (isAdmin) {
-                    if (confirm("確定要登出管理員模式（鎖定網頁）嗎？")) {
-                        setIsAdmin(false);
-                        sessionStorage.removeItem('pikmin-admin-auth');
-                        setEditingVisitId(null);
-                    }
-                } else {
-                    const pwd = prompt("請輸入管理員密碼解鎖編輯功能：");
-                    if (pwd === ADMIN_PASSWORD) {
-                        setIsAdmin(true);
-                        sessionStorage.setItem('pikmin-admin-auth', 'true');
-                        alert("🔓 解鎖成功！管理員模式已開啟。");
-                    } else if (pwd !== null) {
-                        alert("❌ 密碼錯誤！無法開啟編輯功能。");
-                    }
+            useEffect(() => {
+                setFilterCategory("全部");
+                setFilterSubCategory("全部");
+                setFilterType("全部");
+                setSearchTerm("");
+            }, [mainTab]);
+
+            const detectLocation = useCallback(async (lat, lng) => {
+                if (!lat || !lng) {
+                    setLocationText("");
+                    return;
                 }
-            };
-
-            const handleCoordinatePaste = (e) => {
-                if (!isAdmin) return;
-                const text = e.clipboardData.getData('text').trim();
-                const coordsRegex = /^[\(\[]?\s*(-?\d+(\.\d+)?)\s*[,;]\s*(-?\d+(\.\d+)?)\s*[\)\]]?$/;
-                const match = text.match(coordsRegex);
-                if (match) {
-                    e.preventDefault(); 
-                    setLat(match[1]);
-                    setLng(match[3]);
-                }
-            };
-
-            const handleDetectLocation = async () => {
-                if (!lat || !lng) return alert("請先填寫緯度與經度！");
-                setIsDetecting(true);
+                setIsDetectingLocation(true);
                 try {
                     const baseRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}`);
                     const baseData = await baseRes.json();
-                    const lang = ['TW', 'JP', 'KR'].includes(baseData.countryCode) ? 'zh-tw' : 'en';
+                    const countryCode = baseData.countryCode;
+
+                    const lang = ['TW', 'JP', 'KR'].includes(countryCode) ? 'zh-tw' : 'en';
                     
-                    const resGeo = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=${lang}`);
-                    const dataGeo = await resGeo.json();
+                    const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=${lang}`);
+                    const data = await res.json();
                     
-                    let cName = dataGeo.countryName || "";
-                    if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
-                    let textParts = [];
-                    if (baseData.countryCode === 'TW') {
-                        if (dataGeo.principalSubdivision) textParts.push(dataGeo.principalSubdivision);
-                        if (dataGeo.locality || dataGeo.city) textParts.push(dataGeo.locality || dataGeo.city);
+                    if (data) {
+                        let cName = data.countryName || "";
+                        let level1 = data.principalSubdivision || "";
+                        let level2 = data.locality || data.city || "";
+
+                        if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
+
+                        let textParts = [];
+                        if (countryCode === 'TW') {
+                            if (level1) textParts.push(level1);
+                            if (level2 && level2 !== level1) textParts.push(level2);
+                        } else {
+                            if (cName) textParts.push(cName);
+                            if (level1 && level1 !== cName) textParts.push(level1);
+                            if (level2 && level2 !== level1 && level2 !== cName) textParts.push(level2);
+                        }
+                        
+                        setLocationText(textParts.join(" ") || "未知地點");
                     } else {
-                        if (cName) textParts.push(cName);
-                        if (dataGeo.principalSubdivision && dataGeo.principalSubdivision !== cName) textParts.push(dataGeo.principalSubdivision);
+                        setLocationText("未知地點");
                     }
-                    setRegion([...new Set(textParts)].join(" ") || "未知地點");
                 } catch (error) {
-                    alert("解析地點失敗，請確認網路與座標格式。");
+                    setLocationText("無法辨識");
                 } finally {
-                    setIsDetecting(false);
+                    setIsDetectingLocation(false);
                 }
-            };
+            }, []);
+
+            useEffect(() => {
+                const timeoutId = setTimeout(() => {
+                    if (formData.lat && formData.lng) {
+                        detectLocation(formData.lat, formData.lng);
+                    } else {
+                        setLocationText("");
+                    }
+                }, 800);
+                return () => clearTimeout(timeoutId);
+            }, [formData.lat, formData.lng, detectLocation]);
 
             // ★ 新增：自動補全未知地點的批次處理函式
             const handleAutoFillRegions = async () => {
                 if (!isAdmin) return;
                 setIsAutoFilling(true);
-                let updatedLocs = [...locations];
                 let successCount = 0;
+                const updates = [];
 
-                for (let i = 0; i < updatedLocs.length; i++) {
-                    let loc = updatedLocs[i];
-                    if (loc.lat && loc.lng && (!loc.region || loc.region === "未知地點")) {
+                for (let i = 0; i < postcards.length; i++) {
+                    let item = postcards[i];
+                    if (item.lat && item.lng && (!item.region || item.region === "未知地點" || item.region === "無法辨識")) {
                         try {
-                            const baseRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${loc.lat}&longitude=${loc.lng}`);
+                            const baseRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${item.lat}&longitude=${item.lng}`);
                             const baseData = await baseRes.json();
                             const lang = ['TW', 'JP', 'KR'].includes(baseData.countryCode) ? 'zh-tw' : 'en';
                             
-                            const resGeo = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${loc.lat}&longitude=${loc.lng}&localityLanguage=${lang}`);
+                            const resGeo = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${item.lat}&longitude=${item.lng}&localityLanguage=${lang}`);
                             const dataGeo = await resGeo.json();
                             
                             let cName = dataGeo.countryName || "";
+                            let level1 = dataGeo.principalSubdivision || "";
+                            let level2 = dataGeo.locality || dataGeo.city || "";
+
                             if (cName === "中華民國" || cName === "Republic of China") cName = "台灣";
+
                             let textParts = [];
                             if (baseData.countryCode === 'TW') {
-                                if (dataGeo.principalSubdivision) textParts.push(dataGeo.principalSubdivision);
-                                if (dataGeo.locality || dataGeo.city) textParts.push(dataGeo.locality || dataGeo.city);
+                                if (level1) textParts.push(level1);
+                                if (level2 && level2 !== level1) textParts.push(level2);
                             } else {
                                 if (cName) textParts.push(cName);
-                                if (dataGeo.principalSubdivision && dataGeo.principalSubdivision !== cName) textParts.push(dataGeo.principalSubdivision);
+                                if (level1 && level1 !== cName) textParts.push(level1);
+                                if (level2 && level2 !== level1 && level2 !== cName) textParts.push(level2);
                             }
-                            const detectedRegion = [...new Set(textParts)].join(" ");
+                            
+                            const detectedRegion = textParts.join(" ").trim();
                             if (detectedRegion) {
-                                loc.region = detectedRegion;
+                                updates.push({ ...item, region: detectedRegion });
                                 successCount++;
                             }
                             // 延遲 500ms 避免觸發 API 頻率限制
                             await new Promise(r => setTimeout(r, 500));
                         } catch (e) {
-                            console.error(`解析座標 ${loc.lat},${loc.lng} 失敗`, e);
+                            console.error(`解析座標 ${item.lat},${item.lng} 失敗`, e);
                         }
                     }
                 }
 
-                if (successCount > 0) {
-                    setLocations(updatedLocs);
-                    await localforage.setItem('pikmin-seedlings', updatedLocs);
-                    await syncToCloud(updatedLocs);
-                    alert(`✅ 已成功自動補全 ${successCount} 個地點並同步至雲端！`);
+                if (updates.length > 0) {
+                    // 將成功解析的資料批次寫回 Firebase
+                    const batchPromises = updates.map(item => 
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', item.id), item, { merge: true })
+                    );
+                    try {
+                        await Promise.all(batchPromises);
+                        alert(`✅ 已成功自動補全 ${successCount} 個地點並同步至雲端！`);
+                    } catch (err) {
+                        alert("同步至雲端時發生錯誤：" + err.message);
+                    }
                 } else {
                     alert("沒有成功解析出任何新地點。");
                 }
                 setIsAutoFilling(false);
             };
 
-            const handleAddRecordBlock = () => {
-                setRecords([...records, { id: Date.now(), category: "餐廳", subCategory: "廚師帽子", colors: getEmptyColors() }]);
+            const handleGetLocation = () => {
+                if (!navigator.geolocation) {
+                    alert("你的瀏覽器不支援自動定位功能喔！");
+                    return;
+                }
+                setIsFetchingGPS(true);
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const newLat = position.coords.latitude.toFixed(6);
+                        const newLng = position.coords.longitude.toFixed(6);
+                        setFormData(prev => ({ ...prev, lat: newLat, lng: newLng }));
+                        setIsFetchingGPS(false);
+                    },
+                    (error) => {
+                        alert("無法取得位置！請確認你是否已經允許這個網頁存取你的定位權限。");
+                        setIsFetchingGPS(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
             };
 
-            const handleRemoveRecordBlock = (id) => {
-                if (records.length === 1) return alert("至少需要保留一個類別喔！");
-                setRecords(records.filter(r => r.id !== id));
+            const toggleSelection = (id) => {
+                const newSelected = new Set(selectedIds);
+                if (newSelected.has(id)) newSelected.delete(id);
+                else newSelected.add(id);
+                setSelectedIds(newSelected);
             };
 
-            const updateRecord = (id, field, value) => {
-                setRecords(records.map(r => {
-                    if (r.id === id) {
-                        if (field === 'category') {
-                            const sub = value === "路邊" ? "路邊" : PIKMIN_CATEGORIES[value][0];
-                            return { ...r, category: value, subCategory: sub };
+            const handleAdminLogin = async () => {
+                if (isAdmin) {
+                    if(confirm("確定要登出管理員嗎？")) await signOut(auth);
+                } else {
+                    const email = prompt("請輸入管理員 Email:");
+                    if (!email) return;
+                    const password = prompt("請輸入密碼:");
+                    if (!password) return;
+                    try {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        alert("登入成功！編輯模式已開啟。");
+                    } catch (error) { alert("登入失敗: " + error.message); }
+                }
+            };
+
+            const processFile = (file) => {
+                if (!file || !file.type.startsWith('image/')) return;
+                const reader = new FileReader();
+                reader.onload = (event) => { 
+                    setFormData(prev => ({ ...prev, imageUrl: event.target.result })); 
+                    setSelectedFileState(file);
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleImageChange = (e) => {
+                processFile(e.target.files[0]);
+            };
+
+            useEffect(() => {
+                const handlePaste = (e) => {
+                    if (!isModalOpen || formData.mainType !== '明信片') return;
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const file = items[i].getAsFile();
+                            processFile(file);
+                            e.preventDefault(); 
+                            break;
                         }
-                        if (field.startsWith('color_')) {
-                            const colorName = field.split('_')[1];
-                            return { ...r, colors: { ...r.colors, [colorName]: value } };
-                        }
-                        return { ...r, [field]: value };
                     }
-                    return r;
-                }));
-            };
-
-            const handleSave = async () => {
-                if (!isAdmin) return;
-                if (!lat || !lng || !visitDate) return alert("座標與日期為必填項目！");
-                const hasColors = records.some(r => Object.values(r.colors || {}).some(count => count > 0));
-                if (!hasColors) return alert("請至少填寫一個盆栽的顏色數量！");
-
-                setIsSaving(true);
-                const locKey = `${parseFloat(lat).toFixed(5)},${parseFloat(lng).toFixed(5)}`;
-                let existingLocs = [...locations];
-                let locIndex = existingLocs.findIndex(l => l.key === locKey);
-                
-                const newVisit = {
-                    id: editingVisitId || Date.now().toString(),
-                    date: visitDate, 
-                    records: records.map(r => ({ ...r }))
                 };
 
-                if (locIndex >= 0) {
-                    if (editingVisitId) {
-                        existingLocs[locIndex].visits = existingLocs[locIndex].visits.map(v => v.id === editingVisitId ? newVisit : v);
-                    } else {
-                        existingLocs[locIndex].visits.push(newVisit);
-                    }
-                    existingLocs[locIndex].visits.sort((a,b) => b.date.localeCompare(a.date));
-                    existingLocs[locIndex].region = region || existingLocs[locIndex].region;
-                    existingLocs[locIndex].customName = customName.trim() || existingLocs[locIndex].customName || "";
-                } else {
-                    existingLocs.push({
-                        key: locKey, lat, lng, region, customName: customName.trim(), targetCategory: "餐廳", targetSubCategory: "全部", visits: [newVisit]
+                window.addEventListener('paste', handlePaste);
+                return () => window.removeEventListener('paste', handlePaste);
+            }, [isModalOpen, formData.mainType]);
+
+            const handleCoordinatePaste = (e) => {
+                const pastedText = e.clipboardData.getData('text').trim();
+                const coordsRegex = /^[\(\[]?\s*(-?\d+(\.\d+)?)\s*[,;]\s*(-?\d+(\.\d+)?)\s*[\)\]]?$/;
+                const match = pastedText.match(coordsRegex);
+
+                if (match) {
+                    e.preventDefault(); 
+                    const newLat = match[1];
+                    const newLng = match[3];
+                    setFormData(prev => ({ ...prev, lat: newLat, lng: newLng }));
+                }
+            };
+
+            const handleRemoveImage = () => { 
+                setFormData(prev => ({ ...prev, imageUrl: "" })); 
+                setSelectedFileState(null); 
+                if (fileInputRef.current) fileInputRef.current.value = "";
+            };
+
+            const deleteOldImage = async (url) => {
+                if (!url) return;
+                try { await deleteObject(ref(storage, url)); } catch (e) {}
+            };
+
+            const handleOpenModal = (item = null) => {
+                if (item) {
+                    setEditingItem(item);
+                    setFormData({ 
+                        imageUrl: "", mainType: "明信片", ...item
                     });
+                    setLocationText(item.region || ""); 
+                    setSelectedFileState(null);
+                } else {
+                    setEditingItem(null);
+                    setFormData({ 
+                        mainType: mainTab, category: filterCategory === "全部" ? "" : filterCategory, series: filterSubCategory === "全部" ? "" : filterSubCategory, name: "", lat: "", lng: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", note: ""
+                    });
+                    setLocationText("");
+                    setSelectedFileState(null);
+                }
+                setIsModalOpen(true);
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!isAdmin) return;
+                setIsUploading(true);
+                const timestamp = new Date().toISOString();
+                let finalImageUrl = formData.imageUrl;
+                
+                try {
+                    if (selectedFileState) {
+                        if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
+                        const fileExt = selectedFileState.name.split('.').pop() || 'png'; 
+                        const fileName = `${Date.now()}.${fileExt}`;
+                        const storageRef = ref(storage, `images/${fileName}`);
+                        await uploadBytes(storageRef, selectedFileState);
+                        finalImageUrl = await getDownloadURL(storageRef);
+                    } else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
+                        await deleteOldImage(editingItem.imageUrl);
+                    }
+
+                    let docId = editingItem ? editingItem.id : Date.now().toString();
+
+                    const newItem = {
+                        id: docId,
+                        mainType: formData.mainType,
+                        name: formData.name ? formData.name.trim() : "",
+                        category: formData.category || "",
+                        series: formData.series || "",
+                        type: formData.type || "",
+                        lat: formData.lat || "",
+                        lng: formData.lng || "",
+                        region: locationText || "", 
+                        imageUrl: finalImageUrl || "",
+                        note: formData.note ? formData.note.trim() : "",
+                        lastUpdated: timestamp
+                    };
+
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', docId), newItem, { merge: true });
+                    setIsModalOpen(false);
+                } catch (error) { 
+                    console.error("Save error:", error); 
+                    alert("儲存失敗: " + error.message); 
+                } finally { 
+                    setIsUploading(false); 
+                }
+            };
+
+            const handleBatchDelete = async () => {
+                if (selectedIds.size === 0) return;
+                if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
+                setIsUploading(true);
+                try {
+                    const promises = Array.from(selectedIds).map(async (id) => {
+                        const itemToDelete = postcards.find(p => p.id === id);
+                        if (itemToDelete) {
+                            if (itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
+                        }
+                    });
+                    await Promise.all(promises);
+                    setSelectedIds(new Set());
+                    alert("批量刪除完成！");
+                } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
+            };
+
+            const confirmDelete = async () => {
+                if (deleteId && isAdmin) {
+                    try { 
+                        const itemToDelete = postcards.find(p => p.id === deleteId);
+                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
+                        setDeleteId(null); 
+                    } catch (error) {}
+                }
+            };
+
+            const handleGroupDelete = (groupKey, itemsInGroup) => {
+                if (!isAdmin) return;
+                if (confirm(`警告：確定要刪除「${groupKey}」下所有的 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`)) {
+                    setIsUploading(true);
+                    const deletePromises = itemsInGroup.map(async (item) => {
+                        if (item.imageUrl) await deleteOldImage(item.imageUrl);
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', item.id));
+                    });
+                    Promise.all(deletePromises).then(() => {
+                        alert("刪除成功！");
+                        setSelectedIds(new Set());
+                        setIsUploading(false);
+                    }).catch((error) => { alert("刪除失敗: " + error.message); setIsUploading(false); });
+                }
+            };
+
+            const handleCopyText = (text, feedbackKey) => {
+                navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
+            };
+
+            const handleExportCSV = () => {
+                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n\n請輸入對應數字 (1-4)：", "1");
+                if (!option) return; 
+
+                let exportData = [];
+                let fileNameSuffix = "";
+
+                switch (option.trim()) {
+                    case "1": exportData = postcards; fileNameSuffix = "全部"; break;
+                    case "2": exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片'); fileNameSuffix = "明信片"; break;
+                    case "3": exportData = postcards.filter(p => p.mainType === '純點'); fileNameSuffix = "純點"; break;
+                    case "4": exportData = postcards.filter(p => p.mainType === '活動金盆'); fileNameSuffix = "活動金盆"; break;
+                    default: alert("輸入錯誤，已取消匯出。"); return;
+                }
+
+                if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
+
+                const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地區", "緯度", "經度", "備註", "最後更新時間", "圖片連結"];
+                const csvContent = [headers.join(","), ...exportData.map(item => [
+                    item.id, 
+                    `"${item.mainType || '明信片'}"`, 
+                    `"${item.category || ''}"`, 
+                    `"${item.series || ''}"`, 
+                    `"${item.name || ''}"`, 
+                    `"${item.type || ''}"`, 
+                    `"${item.region || ''}"`, 
+                    item.lat, 
+                    item.lng, 
+                    `"${item.note || ''}"`, 
+                    item.lastUpdated, 
+                    `"${item.imageUrl || ''}"`
+                ].join(","))].join("\n");
+
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.setAttribute("download", `pikmin_postcards_${fileNameSuffix}_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const handleImportCSV = (e) => {
+                const file = e.target.files[0];
+                if (!file || !isAdmin) return;
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const text = event.target.result;
+                    const rows = text.split('\n');
+                    const dataRows = rows.slice(1).filter(row => row.trim() !== '');
+                    setIsImporting(true);
+                    
+                    try {
+                        const parseCSVRow = (str) => {
+                            let ret = [], val = '', inQ = false;
+                            for (let i = 0; i < str.length; i++) {
+                                let c = str[i];
+                                if (inQ) {
+                                    if (c === '"') {
+                                        if (i + 1 < str.length && str[i+1] === '"') { val += '"'; i++; } 
+                                        else { inQ = false; }
+                                    } else { val += c; }
+                                } else {
+                                    if (c === '"') { inQ = true; }
+                                    else if (c === ',') { ret.push(val.trim()); val = ''; }
+                                    else { val += c; }
+                                }
+                            }
+                            ret.push(val.trim());
+                            return ret;
+                        };
+
+                        const promises = dataRows.map(row => {
+                            const cols = parseCSVRow(row);
+                            if (cols.length < 2) return null;
+                            const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                            let importedName = cols[4];
+                            
+                            const item = {
+                                id: id, mainType: cols[1] || '明信片', category: cols[2] || '', series: cols[3] || '',
+                                name: importedName, type: cols[5] || '', region: cols[6] || '', lat: cols[7] || '', lng: cols[8] || '',
+                                note: cols[9] || '', 
+                                lastUpdated: cols[10] || new Date().toISOString(), imageUrl: cols[11] || ''
+                            };
+                            return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
+                        }).filter(p => p !== null);
+                        await Promise.all(promises);
+                        alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
+
+                    } catch (error) { 
+                        alert("匯入失敗，請確認格式是否正確。錯誤訊息: " + error.message); 
+                    } finally { 
+                        setIsImporting(false); e.target.value = ''; 
+                    }
+                };
+                reader.readAsText(file);
+            };
+
+            const availableCategories = useMemo(() => {
+                return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const categories = useMemo(() => ["全部", ...availableCategories], [availableCategories]);
+
+            useEffect(() => {
+                if (filterCategory !== "全部") {
+                    const subCatsInCurrentCategory = [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))];
+                    if (filterSubCategory !== "全部" && !subCatsInCurrentCategory.includes(filterSubCategory)) {
+                        setFilterSubCategory("全部");
+                    }
+                }
+            }, [filterCategory, postcards, filterSubCategory]);
+
+            const availableSubCategoriesForFilter = useMemo(() => {
+                if (filterCategory === "全部") {
+                    return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.series).filter(Boolean))].sort();
+                } else {
+                    return [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))].sort();
+                }
+            }, [postcards, filterCategory]);
+
+            const availablePureTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const availableEventTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const formAvailableSubCategories = useMemo(() => {
+                const filtered = postcards.filter(p => {
+                    if ((p.mainType || '明信片') !== '明信片') return false;
+                    if (formData.category && p.category !== formData.category) return false;
+                    return true;
+                });
+                return [...new Set(filtered.map(p => p.series).filter(Boolean))].sort();
+            }, [postcards, formData.category]);
+
+            const displayedItems = postcards.filter(item => {
+                const itemMainType = item.mainType || '明信片';
+                if (itemMainType !== mainTab) return false;
+                
+                const s = searchTerm.toLowerCase();
+                const matchesSearch = (item.name || "").toLowerCase().includes(s) || 
+                                      (item.type || "").toLowerCase().includes(s) || 
+                                      (item.series || "").toLowerCase().includes(s) || 
+                                      (item.region || "").toLowerCase().includes(s) ||
+                                      (item.note || "").toLowerCase().includes(s);
+                                      
+                if (mainTab === '明信片') {
+                    const matchesCategory = filterCategory === "全部" || item.category === filterCategory;
+                    const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
+                } else if (mainTab === '純點' || mainTab === '活動金盆') {
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesType && matchesSearch;
+                }
+            });
+
+            const groupedPostcards = displayedItems.reduce((groups, item) => {
+                const key = mainTab === '明信片' ? (item.series || "未分類") : (item.type || "未分類");
+                if (!groups[key]) groups[key] = { items: [], lastUpdated: null };
+                groups[key].items.push(item);
+                
+                const itemTime = new Date(item.lastUpdated || 0).getTime();
+                if (!groups[key].lastUpdated || itemTime > groups[key].lastUpdated) {
+                    groups[key].lastUpdated = itemTime;
                 }
                 
-                setLocations(existingLocs);
-                await localforage.setItem('pikmin-seedlings', existingLocs);
-                await syncToCloud(existingLocs);
-                
-                const nextExpanded = new Set(expandedLocs);
-                nextExpanded.add(locKey);
-                setExpandedLocs(nextExpanded);
-
-                setRecords([{ id: Date.now(), category: "餐廳", subCategory: "廚師帽子", colors: getEmptyColors() }]);
-                setEditingVisitId(null);
-                setLat(""); setLng(""); setRegion(""); setCustomName("");
-                
-                setIsSaving(false);
-                
-                const toast = document.createElement('div');
-                toast.className = "fixed bottom-5 right-5 bg-slate-800 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-sm font-bold transition-opacity duration-300";
-                toast.innerText = "💾 已儲存並同步至雲端！";
-                document.body.appendChild(toast);
-                setTimeout(() => { toast.style.opacity = '0'; setTimeout(()=> toast.remove(), 300); }, 2000);
-            };
-
-            const handleEditVisit = (loc, visit) => {
-                if (!isAdmin) return;
-                setLat(loc.lat);
-                setLng(loc.lng);
-                setRegion(loc.region);
-                setCustomName(loc.customName || "");
-                setVisitDate(visit.date);
-                setEditingVisitId(visit.id);
-                setRecords(visit.records.map(r => ({ ...r, id: r.id || Date.now() + Math.random() })));
-                window.scrollTo({ top: 0, behavior: 'smooth' }); 
-            };
-
-            const handleUpdateTargetCategory = async (key, value) => {
-                if (!isAdmin) return;
-                const nextLocs = locations.map(l => {
-                    if (l.key === key) return { ...l, targetCategory: value, targetSubCategory: "全部" };
-                    return l;
-                });
-                setLocations(nextLocs);
-                await localforage.setItem('pikmin-seedlings', nextLocs);
-                await syncToCloud(nextLocs);
-            };
-
-            const handleUpdateTargetSubCategory = async (key, value) => {
-                if (!isAdmin) return;
-                const nextLocs = locations.map(l => {
-                    if (l.key === key) return { ...l, targetSubCategory: value };
-                    return l;
-                });
-                setLocations(nextLocs);
-                await localforage.setItem('pikmin-seedlings', nextLocs);
-                await syncToCloud(nextLocs);
-            };
-
-            const handleDeleteLocation = async (key) => {
-                if (!isAdmin) return;
-                if (!confirm("確定要刪除這個地點的所有紀錄嗎？")) return;
-                const newLocs = locations.filter(l => l.key !== key);
-                setLocations(newLocs);
-                await localforage.setItem('pikmin-seedlings', newLocs);
-                await syncToCloud(newLocs);
-            };
-
-            const handleDeleteVisit = async (locKey, visitId) => {
-                if (!isAdmin) return;
-                if (!confirm("確定要刪除該時間點的紀錄嗎？")) return;
-                let newLocs = locations.map(l => {
-                    if (l.key === locKey) {
-                        return { ...l, visits: l.visits.filter(v => v.id !== visitId) };
-                    }
-                    return l;
-                }).filter(l => l.visits.length > 0); 
-                setLocations(newLocs);
-                await localforage.setItem('pikmin-seedlings', newLocs);
-                await syncToCloud(newLocs);
-            };
-
-            const toggleExpand = (key) => {
-                const next = new Set(expandedLocs);
-                if (next.has(key)) next.delete(key);
-                else next.add(key);
-                setExpandedLocs(next);
-            };
-            
-            const handleCopyCoords = (e, lat, lng) => {
-                e.stopPropagation(); 
-                const coordsText = `${lat}, ${lng}`;
-                navigator.clipboard.writeText(coordsText).then(() => {
-                    const btn = e.currentTarget;
-                    const originalHTML = btn.innerHTML;
-                    btn.innerHTML = '<i class="fas fa-check text-emerald-500"></i>';
-                    setTimeout(() => { btn.innerHTML = originalHTML; }, 1000);
-                });
-            };
-
-            if (isInitialLoading) {
-                return <div className="min-h-screen flex items-center justify-center text-emerald-600 font-bold bg-slate-50"><i className="fas fa-spinner fa-spin mr-2"></i> 正在連線讀取歷史資料...</div>;
-            }
-
-            // ★ 計算所有缺漏地點的數量，以決定是否顯示自動補全按鈕
-            const missingRegionsCount = locations.filter(l => l.lat && l.lng && (!l.region || l.region === "未知地點")).length;
+                return groups;
+            }, {});
 
             return (
-                <div>
-                    <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-30">
+                <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
+                    <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
-                            <h1 className="text-xl font-bold flex items-center gap-2">
-                                <i className="fas fa-seedling text-emerald-200"></i> Pikmin Bloom 盆栽收成記錄器
-                            </h1>
-                            <div className="flex items-center gap-3">
-                                <div className="text-xs opacity-80 bg-black/20 px-3 py-1 rounded-full hidden sm:block">
-                                    已儲存 {locations.length} 個地點
+                            <div className="flex items-center gap-2">
+                                <Icon path={ICONS.Leaf} className="text-emerald-100" />
+                                <div className="flex flex-col">
+                                    <h1 className="text-xl font-bold">Pikmin Bloom 座標圖鑑</h1>
+                                    <span className="text-[10px] text-emerald-200 font-medium tracking-wider">最新更新: {globalLastUpdated}</span>
                                 </div>
-                                <button 
-                                    onClick={handleAdminToggle} 
-                                    className={`px-3 py-1.5 rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-1.5 ${isAdmin ? 'bg-yellow-400 text-slate-900 hover:bg-yellow-500' : 'bg-emerald-700 text-emerald-100 hover:bg-emerald-800'}`}
-                                >
-                                    <i className={`fas ${isAdmin ? 'fa-lock-open' : 'fa-lock'}`}></i>
-                                    {isAdmin ? '管理員模式' : '訪客模式(唯讀)'}
-                                </button>
+                            </div>
+                            <div className="flex gap-2 items-center">
+                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
+                                {isAdmin && (
+                                    <>
+                                        <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
+                                        {selectedIds.size > 0 && (
+                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
+                                        )}
+                                        <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
+                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
+                                        <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </header>
-
-                    <main className="max-w-5xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                        
-                        {/* 左側表單：僅在管理員登入下顯示 */}
-                        {isAdmin ? (
-                            <div className="lg:col-span-5 space-y-6 sticky top-24 z-10">
-                                {/* ★ 如果有未知的地區，顯示自動補全按鈕 */}
-                                {missingRegionsCount > 0 && (
-                                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-                                        <div className="text-amber-800 text-sm font-bold flex items-center gap-2">
-                                            <i className="fas fa-exclamation-circle text-amber-500"></i> 發現 {missingRegionsCount} 個未知地點
-                                        </div>
-                                        <button 
-                                            onClick={handleAutoFillRegions} 
-                                            disabled={isAutoFilling}
-                                            className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-1"
-                                        >
-                                            {isAutoFilling ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-globe-asia"></i>} 
-                                            {isAutoFilling ? '解析中...' : '自動補全地區'}
-                                        </button>
-                                    </div>
-                                )}
-
-                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                                    <h2 className="text-lg font-black text-slate-800 mb-4 border-b pb-2 flex items-center gap-2">
-                                        <i className="fas fa-edit text-emerald-500"></i> {editingVisitId ? "修改收成紀錄" : "新增收成紀錄"}
-                                    </h2>
-                                    
-                                    <div className="space-y-3 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                        <div className="flex justify-between items-center">
-                                            <h3 className="text-sm font-bold text-slate-700"><i className="fas fa-map-marker-alt text-emerald-500 mr-1"></i> 1. 地點座標</h3>
-                                            <button onClick={handleDetectLocation} disabled={isDetecting} className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs px-3 py-1.5 rounded-lg shadow-sm font-bold transition-colors disabled:opacity-50">
-                                                {isDetecting ? '解析中...' : '解析地點'}
-                                            </button>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <input type="text" placeholder="緯度 (Lat)" onPaste={handleCoordinatePaste} value={lat} onChange={e => setLat(e.target.value)} className="w-1/2 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                                            <input type="text" placeholder="經度 (Lng)" onPaste={handleCoordinatePaste} value={lng} onChange={e => setLng(e.target.value)} className="w-1/2 border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                                        </div>
-                                        {region && <div className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded inline-block">辨識地區：{region}</div>}
-                                        <div className="pt-2 border-t border-slate-200">
-                                            <label className="block text-xs font-bold text-slate-600 mb-1">自訂地點名稱（可留空）</label>
-                                            <input type="text" placeholder="例如：家附近公園、公司旁咖啡廳" value={customName} onChange={e => setCustomName(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                                            <p className="text-[10px] text-slate-400 mt-1">儲存後會優先顯示此名稱。</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2 mb-6">
-                                        <h3 className="text-sm font-bold text-slate-700"><i className="far fa-calendar-alt text-emerald-500 mr-1"></i> 2. 刷盆日期</h3>
-                                        <input type="date" value={visitDate} onChange={e => setVisitDate(e.target.value)} className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
-                                    </div>
-
-                                    <div className="space-y-4 mb-6">
-                                        <h3 className="text-sm font-bold text-slate-700"><i className="fas fa-box-open text-emerald-500 mr-1"></i> 3. 獲得盆栽數量</h3>
-                                        
-                                        {records.map((rec, index) => (
-                                            <div key={rec.id} className="bg-white border-2 border-slate-100 rounded-xl p-4 shadow-sm relative group hover:border-emerald-100 transition-colors">
-                                                {records.length > 1 && (
-                                                    <button onClick={() => handleRemoveRecordBlock(rec.id)} className="absolute -top-3 -right-3 bg-white border border-red-200 text-red-500 hover:bg-red-500 hover:text-white w-7 h-7 rounded-full flex items-center justify-center text-xs shadow-sm z-10">
-                                                        <i className="fas fa-times"></i>
-                                                    </button>
-                                                )}
-                                                
-                                                <div className="flex gap-2 mb-3">
-                                                    <select value={rec.category} onChange={e => updateRecord(rec.id, 'category', e.target.value)} className="flex-1 border border-slate-300 rounded-lg p-2 text-sm outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                                                        {Object.keys(PIKMIN_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
-                                                    </select>
-                                                    {rec.category !== "路邊" && (
-                                                        <select value={rec.subCategory} onChange={e => updateRecord(rec.id, 'subCategory', e.target.value)} className="flex-1 border border-slate-300 rounded-lg p-2 text-sm outline-none bg-slate-50 focus:bg-white focus:ring-2 focus:ring-emerald-500">
-                                                            {PIKMIN_CATEGORIES[rec.category].map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                                                        </select>
-                                                    )}
-                                                </div>
-
-                                                <div className="grid grid-cols-4 gap-2">
-                                                    {COLORS.map(color => (
-                                                        <ColorCounter 
-                                                            key={color.id} 
-                                                            color={color} 
-                                                            count={(rec.colors && rec.colors[color.id]) || 0} 
-                                                            onChange={(val) => updateRecord(rec.id, `color_${color.id}`, val)} 
-                                                            disabled={!isAdmin}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        ))}
-
-                                        <button onClick={handleAddRecordBlock} className="w-full py-2.5 border-2 border-dashed border-emerald-200 text-emerald-600 hover:bg-emerald-50 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
-                                            <i className="fas fa-plus"></i> 加入另一個盆栽類別
-                                        </button>
-                                    </div>
-
-                                    <div className="flex gap-2">
-                                        {editingVisitId && (
-                                            <button onClick={() => { setEditingVisitId(null); setRecords([{ id: Date.now(), category: "餐廳", subCategory: "廚師帽子", colors: getEmptyColors() }]); setLat(""); setLng(""); setRegion(""); setCustomName(""); }} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 rounded-xl text-sm">取消修改</button>
-                                        )}
-                                        <button onClick={handleSave} disabled={isSaving} className="flex-[2] bg-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 text-lg flex items-center justify-center gap-2 disabled:opacity-50">
-                                            {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>} 同步儲存
-                                        </button>
-                                    </div>
+                    <main className="max-w-5xl mx-auto px-4 py-6">
+                        {/* ★ 自動補全按鈕提示區塊 */}
+                        {isAdmin && missingRegionsCount > 0 && (
+                            <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+                                <div className="text-amber-800 text-sm font-bold flex items-center gap-2">
+                                    <Icon path={ICONS.AlertTriangle} className="text-amber-500 w-5 h-5" /> 
+                                    發現 {missingRegionsCount} 個有座標但缺少地區的地點
                                 </div>
-                            </div>
-                        ) : (
-                            <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200 text-center text-slate-500 space-y-2 sticky top-24">
-                                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400"><i className="fas fa-eye"></i></div>
-                                <h3 className="font-bold text-slate-700">唯讀瀏覽模式</h3>
-                                <p className="text-xs leading-relaxed text-slate-400">目前網頁已鎖定，訪客僅能查看圖鑑與複製座標。若要進行編輯或同步資料，請點選右上角解鎖。</p>
+                                <button 
+                                    onClick={handleAutoFillRegions} 
+                                    disabled={isAutoFilling}
+                                    className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {isAutoFilling ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <Icon path={ICONS.MapPin} className="w-3 h-3" />} 
+                                    {isAutoFilling ? '解析與同步中...' : '自動補全地區'}
+                                </button>
                             </div>
                         )}
 
-                        {/* 右側展示區 */}
-                        <div className={`${isAdmin ? 'lg:col-span-7' : 'lg:col-span-8'} space-y-4`}>
-                            {locations.length === 0 ? (
-                                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-10 text-center text-slate-400 mt-10 lg:mt-0">
-                                    <i className="fas fa-map-marked-alt text-4xl mb-3 opacity-30"></i>
-                                    <p className="font-bold">目前資料庫空空如也...</p>
+                        {loading && <div className="text-center py-10">載入中...</div>}
+                        {!loading && (
+                            <>
+                                <div className="flex border-b border-slate-200 mb-6 overflow-x-auto scrollbar-hide">
+                                    <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
+                                    <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
+                                    <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
                                 </div>
-                            ) : (
-                                locations.sort((a,b) => b.visits[0].date.localeCompare(a.visits[0].date)).map(loc => {
-                                    const isExpanded = expandedLocs.has(loc.key);
-                                    let totalSeedlings = 0;
-                                    let totalTargetCategoryCount = 0; 
-                                    
-                                    const currentTarget = loc.targetCategory || "餐廳";
-                                    const currentSubTarget = loc.targetSubCategory || "全部";
-                                    
-                                    const hasSubCategories = PIKMIN_CATEGORIES[currentTarget] && PIKMIN_CATEGORIES[currentTarget].length > 1;
-
-                                    const summaryObj = {};
-                                    loc.visits.forEach(v => {
-                                        (v.records || []).forEach(r => {
-                                            const activeColors = Object.entries(r.colors || {}).filter(([_, count]) => count > 0);
-                                            if (activeColors.length > 0) {
-                                                const catName = r.category !== "路邊" && r.subCategory !== "其他" ? r.subCategory : r.category;
-                                                if (!summaryObj[catName]) summaryObj[catName] = {};
-                                                
-                                                activeColors.forEach(([color, count]) => {
-                                                    summaryObj[catName][color] = (summaryObj[catName][color] || 0) + count;
-                                                    totalSeedlings += count;
-                                                    
-                                                    if(r.category === currentTarget) {
-                                                        if(currentSubTarget === "全部" || r.subCategory === currentSubTarget) {
-                                                            totalTargetCategoryCount += count;
-                                                        }
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    });
-
-                                    const displayName = loc.customName && loc.customName.trim() ? loc.customName.trim() : (loc.region || "未知地點");
-                                    const hasCustomName = loc.customName && loc.customName.trim();
-
-                                    return (
-                                        <div key={loc.key} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden transition-all hover:shadow-md">
-                                            {/* 折疊式地點標頭 */}
-                                            <div 
-                                                className={`px-5 py-4 flex justify-between items-start cursor-pointer select-none transition-colors ${isExpanded ? 'bg-slate-800 text-white' : 'hover:bg-slate-50'}`}
-                                                onClick={() => toggleExpand(loc.key)}
+                                
+                                {mainTab === '明信片' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">大類別</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterCategory}
+                                                onChange={e => setFilterCategory(e.target.value)}
                                             >
-                                                <div className="flex gap-3">
-                                                    <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-slate-400 text-xs mt-1.5`}></i>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <h2 className={`text-lg font-bold flex items-center gap-2 ${isExpanded ? 'text-white' : 'text-slate-800'}`}>
-                                                                <i className="fas fa-map-pin text-emerald-500"></i> {displayName}
-                                                            </h2>
-                                                            {hasCustomName && (
-                                                                <span className={`text-xs font-bold px-2 py-0.5 rounded ${isExpanded ? 'bg-white/10 text-slate-200' : 'bg-slate-100 text-slate-500'}`}>
-                                                                    {loc.region || "未知地點"}
-                                                                </span>
-                                                            )}
-                                                            <TargetLocalClock lat={loc.lat} lng={loc.lng} />
-                                                        </div>
-                                                        <div className={`flex items-center text-xs font-mono mt-0.5 ${isExpanded ? 'text-slate-300 opacity-80' : 'text-slate-500'}`}>
-                                                            {loc.lat}, {loc.lng}
-                                                            <button 
-                                                                onClick={(e) => handleCopyCoords(e, loc.lat, loc.lng)}
-                                                                className={`ml-2 px-1.5 py-0.5 rounded transition-colors ${isExpanded ? 'hover:bg-slate-600 text-slate-400 hover:text-white' : 'hover:bg-slate-200 text-slate-400 hover:text-slate-700'}`}
-                                                                title="複製座標"
-                                                            >
-                                                                <i className="far fa-copy"></i>
-                                                            </button>
-                                                        </div>
-                                                        
-                                                        {!isExpanded && Object.keys(summaryObj).length > 0 && (
-                                                            <div className="mt-3 flex flex-wrap gap-2">
-                                                                {Object.entries(summaryObj).map(([cat, colorsObj]) => (
-                                                                    <div key={cat} className="flex items-center text-[11px] bg-slate-100 text-slate-600 rounded-full border border-slate-200 overflow-hidden shadow-sm">
-                                                                        <span className="font-black bg-slate-200 px-2 py-0.5">{cat}</span>
-                                                                        <span className="px-2 flex gap-1">
-                                                                            {Object.entries(colorsObj).map(([c, count]) => {
-                                                                                const colorDef = COLORS.find(col => col.id === c);
-                                                                                return colorDef ? (
-                                                                                    <span key={c} className={`flex items-center gap-0.5 font-bold ${colorDef.bg} ${colorDef.text} ${colorDef.border || ''} px-1 rounded-sm text-[9px]`}>
-                                                                                        {c}{count}
-                                                                                    </span>
-                                                                                ) : null;
-                                                                            })}
-                                                                        </span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        )}
+                                                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">子類別</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                                                value={filterSubCategory}
+                                                onChange={e => setFilterSubCategory(e.target.value)}
+                                                disabled={availableSubCategoriesForFilter.length === 0}
+                                            >
+                                                <option value="全部">全部</option>
+                                                {availableSubCategoriesForFilter.map(subCat => <option key={subCat} value={subCat}>{subCat}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">點位屬性</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterType}
+                                                onChange={e => setFilterType(e.target.value)}
+                                            >
+                                                <option value="全部">全部</option>
+                                                <option value="蘑菇">蘑菇</option>
+                                                <option value="花點">花點</option>
+                                                <option value="隱藏">隱藏</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
-                                                        <div className="mt-2 flex flex-wrap items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                                                            <span className="text-[10px] bg-amber-500 text-white font-extrabold px-1.5 py-0.5 rounded shadow-sm">🎯 目標大類別</span>
-                                                            <select 
-                                                                disabled={!isAdmin}
-                                                                value={currentTarget} 
-                                                                onChange={e => handleUpdateTargetCategory(loc.key, e.target.value)}
-                                                                className={`text-xs rounded px-1.5 py-0.5 border ${isExpanded ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-200 text-slate-700'} outline-none font-black disabled:opacity-90`}
-                                                            >
-                                                                {Object.keys(PIKMIN_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
-                                                            </select>
-                                                            
-                                                            {hasSubCategories && (
-                                                                <select 
-                                                                    disabled={!isAdmin}
-                                                                    value={currentSubTarget} 
-                                                                    onChange={e => handleUpdateTargetSubCategory(loc.key, e.target.value)}
-                                                                    className={`text-xs rounded px-1.5 py-0.5 border ${isExpanded ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-100 border-slate-200 text-slate-700'} outline-none font-black disabled:opacity-90`}
-                                                                >
-                                                                    <option value="全部">全部</option>
-                                                                    {PIKMIN_CATEGORIES[currentTarget].map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                                                                </select>
-                                                            )}
-
-                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isExpanded ? 'text-amber-300' : 'text-amber-600'}`}>
-                                                                (已獲取 {totalTargetCategoryCount} 盆)
-                                                            </span>
-                                                        </div>
+                                {(mainTab === '純點' || mainTab === '活動金盆') && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">{mainTab === '純點' ? '純點分類' : '活動類型'}</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterType}
+                                                onChange={e => setFilterType(e.target.value)}
+                                            >
+                                                <option value="全部">全部</option>
+                                                {mainTab === '純點' 
+                                                    ? availablePureTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                    : availableEventTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                <div className="space-y-8">
+                                    {displayedItems.length === 0 ? (
+                                        <div className="text-center py-20 text-slate-400 font-bold">
+                                            找不到符合條件的資料喔！
+                                        </div>
+                                    ) : (
+                                        Object.entries(groupedPostcards).map(([groupKey, groupData]) => (
+                                            <section key={groupKey}>
+                                                <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                    <div className="flex flex-col">
+                                                        <h2 className="text-xl font-bold text-slate-700 leading-tight">{groupKey}</h2>
+                                                        <span className="text-[10px] text-slate-400 font-bold tracking-wide">
+                                                            上次更新: {formatDateTime(groupData.lastUpdated)}
+                                                        </span>
                                                     </div>
-                                                </div>
-                                                <div className="flex items-center gap-4">
-                                                    <div className="flex flex-col items-end">
-                                                        <span className="text-[10px] text-slate-400 font-bold">共 {loc.visits.length} 次拜訪</span>
-                                                        <span className={`text-sm font-black ${isExpanded ? 'text-emerald-300' : 'text-emerald-600'}`}>{totalSeedlings} 盆</span>
-                                                    </div>
-                                                    {isExpanded && isAdmin && (
-                                                        <button className="text-slate-400 hover:text-red-400 hover:bg-white/10 w-8 h-8 rounded-full flex items-center justify-center transition-colors" 
-                                                            onClick={(e) => { e.stopPropagation(); handleDeleteLocation(loc.key); }} title="刪除此地點">
-                                                            <i className="fas fa-trash-alt text-sm"></i>
-                                                        </button>
+                                                    <span className="text-xs font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full ml-1">{groupData.items.length} 筆</span>
+                                                    {isAdmin && (
+                                                        <button onClick={() => handleGroupDelete(groupKey, groupData.items)} className="text-slate-300 hover:text-red-500 transition-colors ml-auto"><Icon path={ICONS.Trash2} /></button>
                                                     )}
                                                 </div>
-                                            </div>
-
-                                            {/* 內容展開區塊 */}
-                                            {isExpanded && (
-                                                <div className="p-5 space-y-5 bg-slate-50/50">
-                                                    {loc.visits.map(visit => {
-                                                        let visitTargetCount = 0;
-                                                        (visit.records || []).forEach(rec => {
-                                                            if (rec.category === currentTarget) {
-                                                                if (currentSubTarget === "全部" || rec.subCategory === currentSubTarget) {
-                                                                    visitTargetCount += Object.values(rec.colors || {}).reduce((sum, count) => sum + count, 0);
-                                                                }
-                                                            }
-                                                        });
-
-                                                        return (
-                                                            <div key={visit.id} className="relative pl-5 border-l-2 border-emerald-200 ml-2">
-                                                                <div className="absolute -left-[9px] top-1 bg-emerald-500 w-4 h-4 rounded-full border-4 border-white shadow-sm"></div>
-                                                                <div className="flex justify-between items-center mb-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <h3 className="text-xs font-black text-slate-700 bg-white px-3 py-1 rounded shadow-sm border border-slate-200 flex items-center gap-1.5">
-                                                                            <i className="far fa-calendar-alt text-slate-400"></i> {visit.date}
-                                                                        </h3>
-                                                                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded shadow-sm border border-amber-200">
-                                                                            {currentTarget}{currentSubTarget !== "全部" ? ` (${currentSubTarget})` : ""}: {visitTargetCount} 盆
-                                                                        </span>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+                                                    {groupData.items.map(item => (
+                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group flex flex-col h-full">
+                                                            {isAdmin && (
+                                                                <>
+                                                                    <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
+                                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500 shadow-sm"><Icon path={ICONS.Edit2} /></button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500 shadow-sm"><Icon path={ICONS.Trash2} /></button>
                                                                     </div>
-                                                                    <div className="flex gap-3 text-xs">
-                                                                        {isAdmin && (
-                                                                            <button className="text-emerald-600 font-black hover:underline flex items-center gap-1" onClick={() => handleEditVisit(loc, visit)}>
-                                                                                <i className="fas fa-edit text-[10px]"></i>編輯
-                                                                            </button>
-                                                                        )}
-                                                                        {isAdmin && (
-                                                                            <button className="text-slate-400 hover:text-red-500 font-medium" onClick={() => handleDeleteVisit(loc.key, visit.id)}>刪除</button>
-                                                                        )}
+                                                                </>
+                                                            )}
+                                                            {mainTab === '明信片' && (
+                                                                <>
+                                                                    {item.imageUrl && (
+                                                                        <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0">
+                                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
+                                                                        </div>
+                                                                    )}
+                                                                    <div className={`mb-3 flex items-center justify-between shrink-0 ${!item.imageUrl ? '' : 'pt-1'}`}>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                                item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                                item.type === '花點' ? 'bg-pink-100 text-pink-700' : 'bg-indigo-100 text-indigo-700'
+                                                                            }`}>{item.type}</span>
+                                                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
+                                                                        </div>
                                                                     </div>
-                                                                </div>
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                                                                    {(visit.records || []).map((rec, i) => {
-                                                                        const activeColors = Object.entries(rec.colors || {}).filter(([_,v]) => v > 0);
-                                                                        if (activeColors.length === 0) return null;
-                                                                        return (
-                                                                            <div key={i} className="bg-white border border-slate-200 p-3 rounded-xl shadow-sm">
-                                                                                <div className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-100">
-                                                                                    <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">{rec.category}</span>
-                                                                                    {rec.category !== "路邊" && rec.subCategory !== "其他" && <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{rec.subCategory}</span>}
-                                                                                </div>
-                                                                                <div className="flex flex-wrap gap-1.5">
-                                                                                    {activeColors.map(([colorKey, count]) => {
-                                                                                        const c = COLORS.find(col => col.id === colorKey);
-                                                                                        return c ? (
-                                                                                            <span key={colorKey} className={`text-[11px] font-bold px-2 py-0.5 rounded flex items-center gap-1.5 ${c.bg} ${c.text} ${c.border || ''} shadow-sm`}>
-                                                                                                {c.label} <span className="bg-black/20 px-1.5 rounded min-w-[1.2rem] text-center">{count}</span>
-                                                                                            </span>
-                                                                                        ) : null;
-                                                                                    })}
-                                                                                </div>
+                                                                </>
+                                                            )}
+                                                            {mainTab === '純點' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            {mainTab === '活動金盆' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            
+                                                            {mainTab !== '純點' && (
+                                                                <h3 className="text-base font-bold text-slate-800 mb-3 break-words leading-snug shrink-0">{item.name || '未命名項目'}</h3>
+                                                            )}
+
+                                                            <div className="space-y-3 text-sm text-slate-600 flex-1 flex flex-col justify-end mt-auto pt-2">
+                                                                <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
+                                                                    {item.region ? (
+                                                                        <div className="flex flex-col mb-2 pb-2 border-b border-slate-200/50">
+                                                                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                                                                                <Icon path={ICONS.MapPin} /> {item.region}
                                                                             </div>
-                                                                        )
-                                                                    })}
+                                                                            <LocalTimeDisplay lat={item.lat} lng={item.lng} />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-xs text-slate-400 italic flex items-center gap-1"><Icon path={ICONS.MapPin} /> 座標資訊已隱藏</div>
+                                                                    )}
+                                                                    
+                                                                    <div className="flex justify-between items-center group/lat"><div className="flex gap-2 items-center"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono bg-white px-1 rounded">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500 transition-colors"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="flex justify-between items-center group/lng border-t border-slate-200/50 pt-2"><div className="flex gap-2 items-center"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono bg-white px-1 rounded">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500 transition-colors"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="border-t border-slate-200/50 pt-2 mt-1">
+                                                                        <button onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors shadow-sm">
+                                                                            <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
+                                                                        </button>
+                                                                    </div>
+                                                                    
+                                                                    {item.note && (
+                                                                        <div className="mt-3 bg-yellow-50/50 border border-yellow-100 rounded p-2 pt-1.5">
+                                                                            <div className="text-[10px] font-bold text-yellow-600 mb-0.5 flex items-center gap-1"><Icon path={ICONS.FileText} className="w-3 h-3"/> 備註</div>
+                                                                            <div className="text-xs text-yellow-800 whitespace-pre-wrap leading-relaxed">{item.note}</div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
+                                                                
+                                                                <a href={`https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
                                                             </div>
-                                                        )
-                                                    })}
+                                                        </div>
+                                                    ))}
                                                 </div>
+                                            </section>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </main>
+
+                    {deleteId && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600"><Icon path={ICONS.AlertTriangle} /></div>
+                                <h3 className="text-lg font-bold mb-2">確定要刪除嗎？</h3>
+                                <div className="flex gap-3 mt-6"><button onClick={() => setDeleteId(null)} className="flex-1 py-2 rounded-lg border font-bold text-slate-600 hover:bg-slate-50 transition-colors">取消</button><button onClick={confirmDelete} className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-700 transition-colors font-bold text-white shadow-md">確認刪除</button></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl"><h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Icon path={editingItem ? ICONS.Edit2 : ICONS.Plus} /> {editingItem ? '編輯資料' : '新增資料'}</h3><button onClick={() => setIsModalOpen(false)} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 transition-colors"><Icon path={ICONS.X} /></button></div>
+                                <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto">
+                                    {!editingItem && (
+                                        <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg gap-1 mb-2 shadow-inner">
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '明信片' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>明信片</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '純點' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>純點</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '活動金盆' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>活動金盆</button>
+                                        </div>
+                                    )}
+                                    
+                                    {formData.mainType === '明信片' ? (
+                                        <>
+                                            <div className="space-y-2">
+                                                <label className="flex items-center justify-between text-xs font-bold text-slate-500">
+                                                    <span>明信片照片</span>
+                                                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded shadow-sm">支援 Ctrl+V 貼上圖片</span>
+                                                </label>
+                                                <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
+                                                {formData.imageUrl ? (
+                                                    <div className="relative rounded-xl overflow-hidden border border-slate-200 shadow-inner group h-48 bg-slate-50 flex items-center justify-center">
+                                                        <img src={formData.imageUrl} alt="Preview" className="max-w-full max-h-full object-contain p-2" />
+                                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 transition-opacity backdrop-blur-sm">
+                                                            <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white hover:bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors">更換圖片</button>
+                                                            <button type="button" onClick={handleRemoveImage} className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors">移除圖片</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition-colors group shadow-sm bg-slate-50">
+                                                        <div className="p-3 bg-white rounded-full shadow-sm mb-2 group-hover:scale-110 transition-transform"><Icon path={ICONS.Upload} /></div>
+                                                        <span className="text-sm font-bold">點擊上傳 / Ctrl+V 貼上圖片</span>
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">大類別</label><input list="cat-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 動物園" value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500 block mb-1.5">點位屬性</label>
+                                                    <select className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm bg-white" value={formData.type || ''} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                        <option value="蘑菇">🍄 蘑菇</option>
+                                                        <option value="花點">🌸 花點</option>
+                                                        <option value="隱藏">❓ 隱藏點</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">子類別</label><input list="form-sub-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北市立動物園" value={formData.series || ''} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="form-sub-opts">{formAvailableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 企鵝館看板" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 block mb-1.5">{formData.mainType === '活動金盆' ? '活動類型' : '純點分類'}</label>
+                                                <input list="pure-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 2024週年慶" value={formData.type || ''} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                                <datalist id="pure-opts">
+                                                    {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
+                                                </datalist>
+                                            </div>
+                                            {formData.mainType !== '純點' && (
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北地下街任天堂旗艦店" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                            )}
+                                        </>
+                                    )}
+                                    
+                                    <div className="bg-sky-50/50 p-4 rounded-xl space-y-4 border border-sky-100 shadow-sm relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-sky-400"></div>
+                                        <div className="flex justify-between items-center pb-2 border-b border-sky-200/50">
+                                            <h4 className="text-sm font-bold text-sky-800 flex items-center gap-1.5"><Icon path={ICONS.MapPin} /> 座標與地區</h4>
+                                            <button type="button" onClick={handleGetLocation} disabled={isFetchingGPS} className="bg-white hover:bg-sky-50 text-sky-600 border border-sky-200 text-[10px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1 transition-colors disabled:opacity-50">
+                                                <Icon path={ICONS.Locate} /> 
+                                                {isFetchingGPS ? "定位中..." : "自動抓取目前定位"}
+                                            </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">緯度 (Lat)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lat || ''} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
+                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">經度 (Lng)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lng || ''} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-1 bg-white p-2 rounded border border-slate-100 shadow-sm">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">系統辨識地區</span>
+                                            {isDetectingLocation ? (
+                                                <span className="text-xs text-sky-500 font-medium animate-pulse flex items-center gap-1"><div className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-ping"></div> 正在轉換座標...</span>
+                                            ) : (
+                                                <span className={`text-sm font-black ${locationText ? 'text-emerald-600' : 'text-slate-300 italic'}`}>{locationText || "無資料"}</span>
                                             )}
                                         </div>
-                                    );
-                                })
-                            )}
+                                    </div>
+                                    
+                                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-emerald-500 transition-shadow">
+                                        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+                                            <Icon path={ICONS.FileText} className="text-slate-500 w-4 h-4" />
+                                            <span className="text-xs font-bold text-slate-600">備註 (選填)</span>
+                                        </div>
+                                        <textarea 
+                                            rows="2" 
+                                            className="w-full p-3 text-sm border-0 outline-none resize-none placeholder:text-slate-300"
+                                            placeholder="可以在這裡記錄該點位的注意事項或細節..."
+                                            value={formData.note || ''}
+                                            onChange={e => setFormData({ ...formData, note: e.target.value })}
+                                        ></textarea>
+                                    </div>
+
+                                    <div className="pt-4 flex gap-3 border-t border-slate-100 mt-6">
+                                        <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors">取消</button>
+                                        <button type="submit" disabled={isUploading} className="flex-[2] py-2.5 text-white rounded-lg flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 font-bold">
+                                            {isUploading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 儲存中...</> : <><Icon path={ICONS.Save} />確認儲存</>}
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
-                    </main>
+                    )}
                 </div>
             );
         };
