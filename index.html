@@ -3,11 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pikmin bloom 花朵變異圖鑑</title>
+    <title>Pikmin Bloom 明信片座標圖鑑</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
     
     <script>
         Babel.registerPreset('react-classic', {
@@ -17,18 +28,55 @@
         });
     </script>
 </head>
-<body class="bg-emerald-50 min-h-screen font-sans">
+<body class="bg-slate-50">
     <div id="root"></div>
 
     <script type="text/babel" data-type="module" data-presets="react-classic">
-        const { useState, useEffect, Fragment, useCallback, useMemo } = React;
+        const { useState, useEffect, useRef, Fragment, useCallback, useMemo } = React;
 
-        const API_URL = "https://script.google.com/macros/s/AKfycbwuW-ao7uazpgYnjKH8Tlk1tk2f0vn5CQN7KzJzTktSzlPiO4MwJy9x1eKYMZxKSAFdQQ/exec";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-        const getLocalISODate = () => {
-            const d = new Date();
-            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-            return d.toISOString().slice(0, 10);
+        const firebaseConfig = {
+            apiKey: "AIzaSyDEsqE2MtAJnMGm17kwjnftuCcieV0z6Bc",
+            authDomain: "pikcardrecord.firebaseapp.com",
+            projectId: "pikcardrecord",
+            storageBucket: "pikcardrecord.firebasestorage.app",
+            messagingSenderId: "441551391616",
+            appId: "1:441551391616:web:8f6fe2c7f46bb6de038f65"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const appId = 'pikmin-public-v1';
+        const ADMIN_EMAIL = "admin@pikmin.map"; 
+
+        const ADMIN_PASSWORD = "admin";
+
+        const ICONS = {
+            Leaf: <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />,
+            Download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3" />,
+            Upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12" />,
+            Plus: <path d="M5 12h14 M12 5v14" />,
+            Search: <Fragment><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></Fragment>,
+            Edit2: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
+            Trash2: <path d="M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6" />,
+            MapPin: <Fragment><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></Fragment>,
+            Copy: <Fragment><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></Fragment>,
+            Check: <polyline points="20 6 9 17 4 12" />,
+            ExternalLink: <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6 M15 3h6v6 M10 14 21 3" />,
+            AlertTriangle: <Fragment><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" x2="12" y1="9" y2="13" /><line x1="12" x2="12.01" y1="17" y2="17" /></Fragment>,
+            X: <path d="M18 6 6 18 M6 6l12 12" />,
+            Save: <Fragment><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></Fragment>,
+            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
+            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>,
+            Clipboard: <Fragment><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /></Fragment>,
+            Clock: <Fragment><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></Fragment>,
+            FileText: <Fragment><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></Fragment>
         };
 
         const Icon = ({ path, className = "" }) => (
@@ -37,35 +85,12 @@
             </svg>
         );
 
-        const ICONS = {
-            Flower: <path d="M12 2v20M17 5c0 3-5 5-5 5s-5-2-5-5a5 5 0 1 1 10 0z M12 12c0 3 4 4 4 4s-4 1-4 4-4-1-4-4 4-1 4-4z" />,
-            Lock: <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />,
-            Unlock: <Fragment><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></Fragment>,
-            Plus: <path d="M5 12h14 M12 5v14" />,
-            X: <path d="M18 6 6 18 M6 6l12 12" />,
-            ChevronDown: <polyline points="6 9 12 15 18 9" />,
-            ChevronUp: <polyline points="18 15 12 9 6 15" />,
-            Link: <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
-            Edit2: <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />,
-            Trash2: <path d="M3 6h18 M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6 M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2 M10 11v6 M14 11v6" />,
-            MapPin: <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />,
-            Locate: <Fragment><circle cx="12" cy="12" r="3" /><path d="M19 12h2M3 12h2M12 19v2M12 3v2M16.24 16.24A6 6 0 1 0 7.76 7.76a6 6 0 0 0 8.48 8.48z" /></Fragment>,
-            BarChart: <Fragment><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></Fragment>,
-            Crown: <path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14" />
-        };
-
         const cleanCountryName = (rawCountry) => {
             if (!rawCountry) return "";
             const parts = String(rawCountry).split(';');
             let zh = [...parts].reverse().find(p => /[\u4e00-\u9fa5]/.test(p));
             let result = (zh || parts[parts.length - 1]).trim();
-            
-            const dict = {
-                "臺灣": "台灣", "中華民國": "台灣", "Taiwan": "台灣",
-                "肯尼亚": "肯亞", "意大利": "義大利", "新西兰": "紐西蘭",
-                "澳大利亚": "澳洲", "印度尼西亚": "印尼", "沙特阿拉伯": "沙烏地阿拉伯",
-                "阿联酋": "阿拉伯聯合大公國"
-            };
+            const dict = { "臺灣": "台灣", "中華民國": "台灣", "Taiwan": "台灣", "肯尼亚": "肯亞", "意大利": "義大利", "新西兰": "紐西蘭", "澳大利亚": "澳洲", "印度尼西亚": "印尼", "沙特阿拉伯": "沙烏地阿拉伯", "阿联酋": "阿拉伯聯合大公國" };
             return dict[result] || result;
         };
 
@@ -81,51 +106,235 @@
             }
         };
 
-        const App = () => {
-            const [flowers, setFlowers] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [expandedFlowers, setExpandedFlowers] = useState(new Set());
-            const [currentTab, setCurrentTab] = useState('圖鑑'); 
+        const parseOsmAddress = (addr) => {
+            if (!addr) return "未知地點";
             
-            const [isAdmin, setIsAdmin] = useState(false);
-            const [password, setPassword] = useState("");
-            const [isLoggingIn, setIsLoggingIn] = useState(false);
+            const cCode = addr.country_code;
+            const cName = getTaiwaneseCountryName(cCode, addr.country);
+            
+            const clean = (str) => {
+                if (!str) return "";
+                const parts = String(str).split(';');
+                const zh = [...parts].reverse().find(p => /[\u4e00-\u9fa5]/.test(p));
+                return (zh || parts[parts.length - 1]).trim();
+            };
 
-            const [isModalOpen, setIsModalOpen] = useState(false);
-            const [isSubmitting, setIsSubmitting] = useState(false);
+            let level1 = clean(addr.state || addr.province || addr.city || addr.county);
+            let level2 = clean(addr.city_district || addr.district || addr.suburb || addr.town || addr.village || addr.borough);
+
+            if (!level2 && addr.city && clean(addr.city) !== level1) level2 = clean(addr.city);
+            if (!level2 && addr.county && clean(addr.county) !== level1) level2 = clean(addr.county);
+
+            if (level1 === cName) level1 = "";
+            if (level2 === level1 || level2 === cName) level2 = "";
+
+            let result = [];
+            if (cName === "台灣") {
+                if (level1) result.push(level1);
+                if (level2) result.push(level2);
+            } else {
+                if (cName) result.push(cName);
+                if (level1) result.push(level1);
+                if (level2) result.push(level2);
+            }
+
+            return result.join(" ").trim() || (cName ? cName : "特殊座標(需手動)");
+        };
+
+        window.__TZ_CACHE = window.__TZ_CACHE || {};
+        window.__TZ_PENDING = window.__TZ_PENDING || {};
+
+        const LocalTimeDisplay = ({ lat, lng }) => {
+            const [timeZone, setTimeZone] = useState(null);
+            const [now, setNow] = useState(new Date());
+            const [failed, setFailed] = useState(false);
+
+            useEffect(() => {
+                let isMounted = true;
+                if (!lat || !lng) return;
+
+                const cacheKey = `${Math.round(lat)},${Math.round(lng)}`;
+
+                if (window.__TZ_CACHE[cacheKey]) {
+                    if (window.__TZ_CACHE[cacheKey] === 'error') {
+                        setFailed(true);
+                    } else {
+                        setTimeZone(window.__TZ_CACHE[cacheKey]);
+                    }
+                    return;
+                }
+
+                const fetchTimezone = async () => {
+                    if (window.__TZ_PENDING[cacheKey]) {
+                        await window.__TZ_PENDING[cacheKey];
+                        if (isMounted) {
+                            if (window.__TZ_CACHE[cacheKey] === 'error') setFailed(true);
+                            else setTimeZone(window.__TZ_CACHE[cacheKey]);
+                        }
+                        return;
+                    }
+
+                    window.__TZ_PENDING[cacheKey] = (async () => {
+                        try {
+                            let tz = null;
+                            try {
+                                const res = await fetch(`https://api.wheretheiss.at/v1/coordinates/${lat},${lng}`);
+                                if (res.ok) {
+                                    const data = await res.json();
+                                    if (data && data.timezone_id) tz = data.timezone_id;
+                                }
+                            } catch (e) {
+                                console.warn("Primary Time API failed, trying fallback...");
+                            }
+
+                            if (!tz) {
+                                const targetUrl = encodeURIComponent(`https://timeapi.io/api/TimeZone/coordinate?latitude=${lat}&longitude=${lng}`);
+                                const res2 = await fetch(`https://api.allorigins.win/raw?url=${targetUrl}`);
+                                if (res2.ok) {
+                                    const data2 = await res2.json();
+                                    if (data2 && data2.timeZone) tz = data2.timeZone;
+                                }
+                            }
+
+                            if (tz) {
+                                window.__TZ_CACHE[cacheKey] = tz;
+                            } else {
+                                throw new Error('NO_TZ');
+                            }
+                        } catch (e) {
+                            window.__TZ_CACHE[cacheKey] = 'error';
+                        }
+                    })();
+
+                    await window.__TZ_PENDING[cacheKey];
+                    if (isMounted) {
+                        if (window.__TZ_CACHE[cacheKey] === 'error') setFailed(true);
+                        else setTimeZone(window.__TZ_CACHE[cacheKey]);
+                    }
+                };
+
+                fetchTimezone();
+
+            }, [lat, lng]);
+
+            useEffect(() => {
+                if (!timeZone || failed) return;
+                const timer = setInterval(() => {
+                    setNow(new Date());
+                }, 10000); 
+                return () => clearInterval(timer);
+            }, [timeZone, failed]);
+
+            if (failed) return null; 
+            if (!timeZone) return <span className="text-slate-300 text-[10px] animate-pulse ml-2">取得時區中...</span>;
+
+            try {
+                const timeStr = now.toLocaleTimeString('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false });
+                return (
+                    <div className="flex items-center gap-1 mt-1 text-slate-500 font-medium">
+                        <Icon path={ICONS.Clock} className="w-3 h-3 text-emerald-500" />
+                        <span className="text-[10px]">當地時間:</span>
+                        <span className="text-xs font-mono font-bold tracking-wider">{timeStr}</span>
+                    </div>
+                );
+            } catch (e) {
+                return null;
+            }
+        };
+
+        const formatDateTime = (isoString) => {
+            if (!isoString) return "無紀錄";
+            const d = new Date(isoString);
+            if (isNaN(d.getTime())) return "無紀錄";
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [postcards, setPostcards] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [mainTab, setMainTab] = useState('明信片');
             
-            const [formData, setFormData] = useState({
-                _rowNumber: null, name: "", date: getLocalISODate(), 
-                method: "", w: "", b: "", y: "", r: "", imageUrl: "", lat: "", lng: ""
+            const [filterCategory, setFilterCategory] = useState("全部");
+            const [filterSubCategory, setFilterSubCategory] = useState("全部");
+            const [filterType, setFilterType] = useState("全部"); 
+            const [searchTerm, setSearchTerm] = useState("");
+            
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingItem, setEditingItem] = useState(null);
+            const [deleteId, setDeleteId] = useState(null);
+            const [copyFeedback, setCopyFeedback] = useState(null);
+            const [isImporting, setIsImporting] = useState(false);
+            const [isUploading, setIsUploading] = useState(false);
+            const [selectedIds, setSelectedIds] = useState(new Set());
+            
+            const [isAutoFilling, setIsAutoFilling] = useState(false);
+            const [autoFillProgress, setAutoFillProgress] = useState({ current: 0, total: 0 });
+
+            const fileInputRef = useRef(null);
+            const csvInputRef = useRef(null);
+            
+            const [formData, setFormData] = useState({ 
+                mainType: "明信片", category: "", series: "", name: "", lat: "", lng: "", type: "蘑菇", imageUrl: "", note: ""
             });
-            const [locationCountry, setLocationCountry] = useState("");
+            const [selectedFileState, setSelectedFileState] = useState(null);
+
+            const [locationText, setLocationText] = useState("");
             const [isDetectingLocation, setIsDetectingLocation] = useState(false);
             const [isFetchingGPS, setIsFetchingGPS] = useState(false);
 
-            const lastUpdatedTime = useMemo(() => {
-                if (!flowers || flowers.length === 0) return "無紀錄";
-                let allDates = [];
-                flowers.forEach(flower => {
-                    if (flower.records && flower.records.length > 0) {
-                        flower.records.forEach(record => {
-                            if (record.date) {
-                                allDates.push(new Date(record.date));
-                            }
-                        });
+            const globalLastUpdated = useMemo(() => {
+                if (!postcards || postcards.length === 0) return "無紀錄";
+                const latestDoc = [...postcards].sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0))[0];
+                return formatDateTime(latestDoc.lastUpdated);
+            }, [postcards]);
+
+            const missingRegionsCount = useMemo(() => {
+                return postcards.filter(p => p.lat && p.lng && (!p.region || p.region === "未知地點" || p.region === "無法辨識")).length;
+            }, [postcards]);
+
+            useEffect(() => {
+                onAuthStateChanged(auth, (u) => {
+                    if (u) {
+                        setUser(u);
+                        setIsAdmin(u.email === ADMIN_EMAIL);
+                    } else {
+                        setUser(null);
+                        setIsAdmin(false);
+                        setSelectedIds(new Set());
                     }
                 });
+            }, []);
 
-                if (allDates.length === 0) return "無紀錄";
-                const latestDate = new Date(Math.max(...allDates));
-                return `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(2, '0')}-${String(latestDate.getDate()).padStart(2, '0')}`;
-            }, [flowers]);
+            useEffect(() => {
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards'));
+                const unsubscribe = onSnapshot(q, async (snapshot) => {
+                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
+                    docs.sort((a, b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
+                    setPostcards(docs);
+                    setLoading(false);
+                }, (error) => { 
+                    console.error("Data sync error:", error); 
+                    setLoading(false); 
+                });
+                return () => unsubscribe();
+            }, []);
 
-            const detectCountry = useCallback(async (lat, lng) => {
+            useEffect(() => {
+                setFilterCategory("全部");
+                setFilterSubCategory("全部");
+                setFilterType("全部");
+                setSearchTerm("");
+            }, [mainTab]);
+
+            const detectLocation = useCallback(async (lat, lng) => {
                 let numLat = parseFloat(lat);
                 let numLng = parseFloat(lng);
                 
                 if (isNaN(numLat) || isNaN(numLng)) {
-                    setLocationCountry("");
+                    setLocationText("");
                     return;
                 }
 
@@ -137,23 +346,24 @@
                 }
 
                 if (numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
-                    setLocationCountry("無效座標");
+                    setLocationText("座標格式無效");
                     return;
                 }
 
                 setIsDetectingLocation(true);
                 try {
                     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${numLat}&lon=${numLng}&accept-language=zh-TW`);
-                    if (!res.ok) throw new Error("API Limit");
+                    if (!res.ok) throw new Error("API Limit or Error");
                     const data = await res.json();
                     
-                    if (data && data.address && data.address.country) {
-                        setLocationCountry(getTaiwaneseCountryName(data.address.country_code, data.address.country));
+                    if (data && data.address) {
+                        setLocationText(parseOsmAddress(data.address));
                     } else {
-                        setLocationCountry("未知國家");
+                        setLocationText("未知地點");
                     }
                 } catch (error) {
-                    setLocationCountry("無法辨識");
+                    console.error("Geocoding error:", error);
+                    setLocationText("無法辨識");
                 } finally {
                     setIsDetectingLocation(false);
                 }
@@ -162,13 +372,76 @@
             useEffect(() => {
                 const timeoutId = setTimeout(() => {
                     if (formData.lat && formData.lng) {
-                        detectCountry(formData.lat, formData.lng);
+                        detectLocation(formData.lat, formData.lng);
                     } else {
-                        setLocationCountry("");
+                        setLocationText("");
                     }
                 }, 800);
                 return () => clearTimeout(timeoutId);
-            }, [formData.lat, formData.lng, detectCountry]);
+            }, [formData.lat, formData.lng, detectLocation]);
+
+            const handleAutoFillRegions = async () => {
+                if (!isAdmin) return;
+                
+                const missingItems = postcards.filter(p => p.lat && p.lng && (!p.region || p.region === "未知地點" || p.region === "無法辨識"));
+                if (missingItems.length === 0) return;
+
+                setIsAutoFilling(true);
+                const updates = [];
+
+                for (let i = 0; i < missingItems.length; i++) {
+                    let item = missingItems[i];
+                    setAutoFillProgress({ current: i + 1, total: missingItems.length });
+                    
+                    let numLat = parseFloat(item.lat);
+                    let numLng = parseFloat(item.lng);
+                    
+                    if (Math.abs(numLat) > 90 && Math.abs(numLng) <= 90) {
+                        let temp = numLat;
+                        numLat = numLng;
+                        numLng = temp;
+                        item.lat = String(numLat);
+                        item.lng = String(numLng);
+                    }
+
+                    if (isNaN(numLat) || isNaN(numLng) || numLat < -90 || numLat > 90 || numLng < -180 || numLng > 180) {
+                        updates.push({ ...item, region: "無效座標格式" });
+                        continue;
+                    }
+
+                    try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${numLat}&lon=${numLng}&accept-language=zh-TW`);
+                        const data = await res.json();
+                        
+                        let detectedRegion = "特殊座標(需手動)";
+                        if (data && data.address) {
+                            detectedRegion = parseOsmAddress(data.address);
+                        }
+                        
+                        updates.push({ ...item, region: detectedRegion });
+                        
+                        await new Promise(r => setTimeout(r, 1000)); 
+                    } catch (e) {
+                        console.error(`解析座標 ${item.lat},${item.lng} 失敗`, e);
+                        updates.push({ ...item, region: "API解析失敗" });
+                    }
+                }
+
+                if (updates.length > 0) {
+                    const batchPromises = updates.map(item => 
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', item.id), item, { merge: true })
+                    );
+                    try {
+                        await Promise.all(batchPromises);
+                        alert(`✅ 自動補全完成！已處理 ${updates.length} 個地點並同步至雲端。`);
+                    } catch (err) {
+                        alert("同步至雲端時發生錯誤：" + err.message);
+                    }
+                }
+                
+                setIsAutoFilling(false);
+                setAutoFillProgress({ current: 0, total: 0 });
+            };
 
             const handleGetLocation = () => {
                 if (!navigator.geolocation) {
@@ -191,6 +464,62 @@
                 );
             };
 
+            const toggleSelection = (id) => {
+                const newSelected = new Set(selectedIds);
+                if (newSelected.has(id)) newSelected.delete(id);
+                else newSelected.add(id);
+                setSelectedIds(newSelected);
+            };
+
+            const handleAdminLogin = async () => {
+                if (isAdmin) {
+                    if(confirm("確定要登出管理員嗎？")) await signOut(auth);
+                } else {
+                    const email = prompt("請輸入管理員 Email:");
+                    if (!email) return;
+                    const password = prompt("請輸入密碼:");
+                    if (!password) return;
+                    try {
+                        await signInWithEmailAndPassword(auth, email, password);
+                        alert("登入成功！編輯模式已開啟。");
+                    } catch (error) { alert("登入失敗: " + error.message); }
+                }
+            };
+
+            const processFile = (file) => {
+                if (!file || !file.type.startsWith('image/')) return;
+                const reader = new FileReader();
+                reader.onload = (event) => { 
+                    setFormData(prev => ({ ...prev, imageUrl: event.target.result })); 
+                    setSelectedFileState(file);
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleImageChange = (e) => {
+                processFile(e.target.files[0]);
+            };
+
+            useEffect(() => {
+                const handlePaste = (e) => {
+                    if (!isModalOpen || formData.mainType !== '明信片') return;
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const file = items[i].getAsFile();
+                            processFile(file);
+                            e.preventDefault(); 
+                            break;
+                        }
+                    }
+                };
+
+                window.addEventListener('paste', handlePaste);
+                return () => window.removeEventListener('paste', handlePaste);
+            }, [isModalOpen, formData.mainType]);
+
             const handleCoordinatePaste = (e) => {
                 const pastedText = e.clipboardData.getData('text').trim();
                 const coordsRegex = /^[\(\[]?\s*(-?\d+(\.\d+)?)\s*[,;]\s*(-?\d+(\.\d+)?)\s*[\)\]]?$/;
@@ -204,580 +533,708 @@
                 }
             };
 
-            const fetchData = async () => {
-                setLoading(true);
-                try {
-                    const res = await fetch(API_URL);
-                    const data = await res.json();
-                    
-                    const grouped = {};
-                    data.forEach(row => {
-                        const name = row['花朵名稱'];
-                        if (!name) return;
-                        if (!grouped[name]) {
-                            grouped[name] = { name: name, imageUrl: row['圖片網址'] || '', records: [] };
-                        }
-                        if (row['圖片網址']) grouped[name].imageUrl = row['圖片網址'];
-                        
-                        if (row['種法']) {
-                            let cleanDate = row['日期'] ? String(row['日期']).replace(/\//g, '-').split('T')[0] : '無日期';
-
-                            grouped[name].records.push({
-                                _rowNumber: row['_rowNumber'],
-                                date: cleanDate,
-                                method: row['種法'],
-                                w: Number(row['白']) || 0,
-                                b: Number(row['藍']) || 0,
-                                y: Number(row['黃']) || 0,
-                                r: Number(row['紅']) || 0,
-                                imageUrl: row['圖片網址'] || '',
-                                lat: row['緯度'] || '',
-                                lng: row['經度'] || '',
-                                country: row['國家'] || ''
-                            });
-                        }
-                    });
-                    
-                    const flowerArray = Object.values(grouped).sort((a, b) => {
-                        const totalA = a.records.reduce((s, r) => s + r.w + r.b + r.y + r.r, 0);
-                        const totalB = b.records.reduce((s, r) => s + r.w + r.b + r.y + r.r, 0);
-                        return totalB - totalA;
-                    });
-
-                    setFlowers(flowerArray);
-                } catch (error) {
-                    alert("資料載入失敗，請檢查網路或 API 網址設定！");
-                } finally {
-                    setLoading(false);
-                }
+            const handleRemoveImage = () => { 
+                setFormData(prev => ({ ...prev, imageUrl: "" })); 
+                setSelectedFileState(null); 
+                if (fileInputRef.current) fileInputRef.current.value = "";
             };
 
-            useEffect(() => { fetchData(); }, []);
-
-            const toggleExpandFlower = (name) => {
-                const next = new Set(expandedFlowers);
-                if (next.has(name)) next.delete(name);
-                else next.add(name);
-                setExpandedFlowers(next);
+            const deleteOldImage = async (url) => {
+                if (!url) return;
+                try { await deleteObject(ref(storage, url)); } catch (e) {}
             };
 
-            const handleLogin = async () => {
-                if (isAdmin) {
-                    setIsAdmin(false); 
-                    setPassword("");
+            const handleOpenModal = (item = null) => {
+                if (item) {
+                    setEditingItem(item);
+                    setFormData({ 
+                        imageUrl: item.imageUrl || "", 
+                        mainType: item.mainType || "明信片", 
+                        category: item.category || "", 
+                        series: item.series || "", 
+                        name: item.name || "", 
+                        lat: String(item.lat || ""), 
+                        lng: String(item.lng || ""), 
+                        type: item.type || "蘑菇", 
+                        note: item.note || ""
+                    });
+                    setLocationText(item.region || ""); 
+                    setSelectedFileState(null);
                 } else {
-                    const pwd = prompt("請輸入管理員密碼：");
-                    if (pwd) {
-                        setIsLoggingIn(true);
-                        try {
-                            const res = await fetch(API_URL, {
-                                method: 'POST',
-                                body: JSON.stringify({ action: 'verify', password: pwd })
-                            });
-                            const result = await res.json();
-                            
-                            if (result.status === 'success') {
-                                setIsAdmin(true); 
-                                setPassword(pwd);
-                                alert("✅ " + result.message + "！已解鎖管理員功能。");
-                            } else {
-                                alert("❌ " + result.message);
-                            }
-                        } catch (error) {
-                            alert("連線驗證失敗，請檢查網路設定。");
-                        } finally {
-                            setIsLoggingIn(false);
-                        }
-                    }
-                }
-            };
-
-            const handleOpenModalNew = () => {
-                setFormData({ _rowNumber: null, name: "", date: getLocalISODate(), method: "", w: "", b: "", y: "", r: "", imageUrl: "", lat: "", lng: "" });
-                setLocationCountry("");
-                setIsModalOpen(true);
-            };
-
-            const handleOpenModalRecord = (flower) => {
-                setFormData({ _rowNumber: null, name: flower.name, date: getLocalISODate(), method: "", w: "", b: "", y: "", r: "", imageUrl: flower.imageUrl, lat: "", lng: "" });
-                setLocationCountry("");
-                setIsModalOpen(true);
-            };
-
-            const handleEditRecord = (flowerName, record) => {
-                setFormData({
-                    _rowNumber: record._rowNumber,
-                    name: flowerName,
-                    date: record.date,
-                    method: record.method,
-                    w: record.w, b: record.b, y: record.y, r: record.r,
-                    imageUrl: record.imageUrl || "",
-                    lat: record.lat || "",
-                    lng: record.lng || ""
-                });
-                setLocationCountry(cleanCountryName(record.country) || "");
-                setIsModalOpen(true);
-            };
-
-            const handleDeleteRecord = async (rowNumber) => {
-                if (!confirm("確定要刪除這筆紀錄嗎？這將會同步從 Google 試算表中移除！")) return;
-                setIsSubmitting(true);
-                try {
-                    const res = await fetch(API_URL, {
-                        method: 'POST',
-                        body: JSON.stringify({ action: 'delete', rowNumber: rowNumber, password: password })
+                    setEditingItem(null);
+                    setFormData({ 
+                        mainType: mainTab, category: filterCategory === "全部" ? "" : filterCategory, series: filterSubCategory === "全部" ? "" : filterSubCategory, name: "", lat: "", lng: "", type: mainTab === '明信片' ? "蘑菇" : "", imageUrl: "", note: ""
                     });
-                    const result = await res.json();
-                    if (result.status === 'success') {
-                        await fetchData();
-                    } else {
-                        alert("錯誤：" + result.message);
-                    }
-                } catch (error) {
-                    alert("刪除失敗，請稍後再試。");
-                } finally {
-                    setIsSubmitting(false);
+                    setLocationText("");
+                    setSelectedFileState(null);
                 }
+                setIsModalOpen(true);
             };
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                setIsSubmitting(true);
-
-                const payload = {
-                    action: formData._rowNumber ? 'edit' : 'add',
-                    rowNumber: formData._rowNumber,
-                    password: password,
-                    name: String(formData.name || "").trim(),
-                    date: formData.date,
-                    method: String(formData.method || "").trim(),
-                    w: parseInt(formData.w) || 0,
-                    b: parseInt(formData.b) || 0,
-                    y: parseInt(formData.y) || 0,
-                    r: parseInt(formData.r) || 0,
-                    imageUrl: String(formData.imageUrl || "").trim(),
-                    lat: String(formData.lat || "").trim(),
-                    lng: String(formData.lng || "").trim(),
-                    country: locationCountry
-                };
-
+                if (!isAdmin) return;
+                setIsUploading(true);
+                const timestamp = new Date().toISOString();
+                let finalImageUrl = formData.imageUrl;
+                
                 try {
-                    const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-                    const result = await res.json();
-
-                    if (result.status === 'success') {
-                        setIsModalOpen(false);
-                        await fetchData();
-                    } else {
-                        alert("錯誤：" + result.message);
-                        if (result.message.includes("密碼錯誤")) setIsAdmin(false);
+                    if (selectedFileState) {
+                        if (editingItem && editingItem.imageUrl) await deleteOldImage(editingItem.imageUrl);
+                        const fileExt = selectedFileState.name.split('.').pop() || 'png'; 
+                        const fileName = `${Date.now()}.${fileExt}`;
+                        const storageRef = ref(storage, `images/${fileName}`);
+                        await uploadBytes(storageRef, selectedFileState);
+                        finalImageUrl = await getDownloadURL(storageRef);
+                    } else if (editingItem && editingItem.imageUrl && !formData.imageUrl) {
+                        await deleteOldImage(editingItem.imageUrl);
                     }
-                } catch (error) {
-                    alert("傳送失敗，請稍後再試。");
-                } finally {
-                    setIsSubmitting(false);
+
+                    let docId = editingItem ? editingItem.id : Date.now().toString();
+
+                    const newItem = {
+                        id: docId,
+                        mainType: formData.mainType,
+                        name: formData.name ? formData.name.trim() : "",
+                        category: formData.category || "",
+                        series: formData.series || "",
+                        type: formData.type || "",
+                        lat: formData.lat ? String(formData.lat).trim() : "",
+                        lng: formData.lng ? String(formData.lng).trim() : "",
+                        region: locationText || "", 
+                        imageUrl: finalImageUrl || "",
+                        note: formData.note ? formData.note.trim() : "",
+                        lastUpdated: timestamp
+                    };
+
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', docId), newItem, { merge: true });
+                    setIsModalOpen(false);
+                } catch (error) { 
+                    console.error("Save error:", error); 
+                    alert("儲存失敗: " + error.message); 
+                } finally { 
+                    setIsUploading(false); 
                 }
             };
 
-            const renderMiniProgressBar = (w, b, y, r) => {
-                const total = w + b + y + r;
-                if (total === 0) return null;
-                return (
-                    <div className="h-1.5 w-full flex rounded-full overflow-hidden mt-1 opacity-70">
-                        {w > 0 && <div style={{width: `${(w/total)*100}%`}} className="bg-slate-300"></div>}
-                        {b > 0 && <div style={{width: `${(b/total)*100}%`}} className="bg-blue-400"></div>}
-                        {y > 0 && <div style={{width: `${(y/total)*100}%`}} className="bg-yellow-400"></div>}
-                        {r > 0 && <div style={{width: `${(r/total)*100}%`}} className="bg-red-400"></div>}
-                    </div>
-                );
+            const handleBatchDelete = async () => {
+                if (selectedIds.size === 0) return;
+                if (!confirm(`確定要永久刪除選取的 ${selectedIds.size} 筆資料嗎？`)) return;
+                setIsUploading(true);
+                try {
+                    const promises = Array.from(selectedIds).map(async (id) => {
+                        const itemToDelete = postcards.find(p => p.id === id);
+                        if (itemToDelete) {
+                            if (itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id));
+                        }
+                    });
+                    await Promise.all(promises);
+                    setSelectedIds(new Set());
+                    alert("批量刪除完成！");
+                } catch (error) { alert("刪除失敗: " + error.message); } finally { setIsUploading(false); }
             };
 
-            const renderProgressBar = (w, b, y, r) => {
-                const total = w + b + y + r;
-                if (total === 0) return <div className="h-4 w-full bg-slate-200 rounded-full my-2"></div>;
-                return (
-                    <div className="h-4 w-full flex rounded-full overflow-hidden my-2 shadow-inner">
-                        {w > 0 && <div style={{width: `${(w/total)*100}%`}} className="bg-slate-300" title={`白: ${w}`}></div>}
-                        {b > 0 && <div style={{width: `${(b/total)*100}%`}} className="bg-blue-400" title={`藍: ${b}`}></div>}
-                        {y > 0 && <div style={{width: `${(y/total)*100}%`}} className="bg-yellow-400" title={`黃: ${y}`}></div>}
-                        {r > 0 && <div style={{width: `${(r/total)*100}%`}} className="bg-red-400" title={`紅: ${r}`}></div>}
-                    </div>
-                );
+            const confirmDelete = async () => {
+                if (deleteId && isAdmin) {
+                    try { 
+                        const itemToDelete = postcards.find(p => p.id === deleteId);
+                        if (itemToDelete && itemToDelete.imageUrl) await deleteOldImage(itemToDelete.imageUrl);
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', deleteId)); 
+                        setDeleteId(null); 
+                    } catch (error) {}
+                }
             };
 
-            const availableFlowerNames = flowers.map(f => f.name);
+            const handleGroupDelete = (groupKey, itemsInGroup) => {
+                if (!isAdmin) return;
+                if (confirm(`警告：確定要刪除「${groupKey}」下所有的 ${itemsInGroup.length} 筆資料嗎？\n此動作無法復原！`)) {
+                    setIsUploading(true);
+                    const deletePromises = itemsInGroup.map(async (item) => {
+                        if (item.imageUrl) await deleteOldImage(item.imageUrl);
+                        return deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', item.id));
+                    });
+                    Promise.all(deletePromises).then(() => {
+                        alert("刪除成功！");
+                        setSelectedIds(new Set());
+                        setIsUploading(false);
+                    }).catch((error) => { alert("刪除失敗: " + error.message); setIsUploading(false); });
+                }
+            };
 
-            const getWhiteRateRanking = () => {
-                const rankingData = flowers.map(item => {
-                    const totalW = item.records.reduce((s, r) => s + r.w, 0);
-                    const totalB = item.records.reduce((s, r) => s + r.b, 0);
-                    const totalY = item.records.reduce((s, r) => s + r.y, 0);
-                    const totalR = item.records.reduce((s, r) => s + r.r, 0);
-                    const total = totalW + totalB + totalY + totalR;
-                    
-                    if (total === 0) return null;
-                    
-                    const whiteRate = (totalW / total) * 100;
-                    
-                    return {
-                        name: item.name,
-                        imageUrl: item.imageUrl,
-                        totalW: totalW,
-                        totalSamples: total,
-                        whiteRate: whiteRate,
-                        pW: whiteRate.toFixed(1)
-                    };
-                }).filter(item => item !== null); 
+            const handleCopyText = (text, feedbackKey) => {
+                navigator.clipboard.writeText(text).then(() => { setCopyFeedback(feedbackKey); setTimeout(() => setCopyFeedback(null), 2000); });
+            };
 
-                rankingData.sort((a, b) => {
-                    if (b.whiteRate === a.whiteRate) {
-                        return b.totalW - a.totalW; 
+            const handleExportCSV = () => {
+                const option = window.prompt("請選擇要匯出的資料範圍：\n1. 全部資料\n2. 明信片\n3. 純點\n4. 活動金盆\n\n請輸入對應數字 (1-4)：", "1");
+                if (!option) return; 
+
+                let exportData = [];
+                let fileNameSuffix = "";
+
+                switch (option.trim()) {
+                    case "1": exportData = postcards; fileNameSuffix = "全部"; break;
+                    case "2": exportData = postcards.filter(p => (p.mainType || '明信片') === '明信片'); fileNameSuffix = "明信片"; break;
+                    case "3": exportData = postcards.filter(p => p.mainType === '純點'); fileNameSuffix = "純點"; break;
+                    case "4": exportData = postcards.filter(p => p.mainType === '活動金盆'); fileNameSuffix = "活動金盆"; break;
+                    default: alert("輸入錯誤，已取消匯出。"); return;
+                }
+
+                if (exportData.length === 0) { alert(`目前「${fileNameSuffix}」沒有任何資料。`); return; }
+
+                const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地區", "緯度", "經度", "備註", "最後更新時間", "圖片連結"];
+                const csvContent = [headers.join(","), ...exportData.map(item => [
+                    item.id, 
+                    `"${item.mainType || '明信片'}"`, 
+                    `"${item.category || ''}"`, 
+                    `"${item.series || ''}"`, 
+                    `"${item.name || ''}"`, 
+                    `"${item.type || ''}"`, 
+                    `"${item.region || ''}"`, 
+                    item.lat, 
+                    item.lng, 
+                    `"${item.note || ''}"`, 
+                    item.lastUpdated, 
+                    `"${item.imageUrl || ''}"`
+                ].join(","))].join("\n");
+
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.setAttribute("download", `pikmin_postcards_${fileNameSuffix}_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const handleDownloadTemplate = () => {
+                const option = window.prompt("請選擇要下載的範本格式：\n1. 明信片 範本\n2. 純點 範本\n3. 活動金盆 範本\n\n請輸入對應數字 (1-3)：", "1");
+                if (!option) return;
+
+                const headers = ["ID", "大區分類", "大類別", "子類別", "名稱", "類型", "地區", "緯度", "經度", "備註", "最後更新時間", "圖片連結"];
+                let templateRows = [];
+                let fileName = "";
+
+                switch (option.trim()) {
+                    case "1":
+                        fileName = "明信片_匯入範本";
+                        templateRows = [
+                            ",明信片,咖啡廳,咖啡杯,星巴克門口,蘑菇,,25.033964,121.564468,,,",
+                            ",明信片,,,,,25.034000,121.565000,,,",
+                            ",明信片,,,,,25.035000,121.566000,,,"
+                        ];
+                        break;
+                    case "2":
+                        fileName = "純點_匯入範本";
+                        templateRows = [
+                            ",純點,,,,文具店 (文具),,25.033964,121.564468,,,",
+                            ",純點,,,,文具店 (文具),,25.034000,121.565000,,,",
+                            ",純點,,,,文具店 (文具),,25.035000,121.566000,,,"
+                        ];
+                        break;
+                    case "3":
+                        fileName = "活動金盆_匯入範本";
+                        templateRows = [
+                            ",活動金盆,,,紅色貼紙,2024週年慶,,25.033964,121.564468,,,",
+                            ",活動金盆,,,,2024週年慶,,25.034000,121.565000,,,",
+                            ",活動金盆,,,,2024週年慶,,25.035000,121.566000,,,"
+                        ];
+                        break;
+                    default:
+                        alert("輸入錯誤，已取消下載。");
+                        return;
+                }
+
+                const csvContent = [headers.join(","), ...templateRows].join("\n");
+                const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.setAttribute("download", `${fileName}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const handleImportCSV = (e) => {
+                const file = e.target.files[0];
+                if (!file || !isAdmin) return;
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const text = event.target.result;
+                    const rows = text.split('\n');
+                    const dataRows = rows.slice(1).filter(row => row.trim() !== '');
+                    setIsImporting(true);
+                    
+                    try {
+                        const parseCSVRow = (str) => {
+                            let ret = [], val = '', inQ = false;
+                            for (let i = 0; i < str.length; i++) {
+                                let c = str[i];
+                                if (inQ) {
+                                    if (c === '"') {
+                                        if (i + 1 < str.length && str[i+1] === '"') { val += '"'; i++; } 
+                                        else { inQ = false; }
+                                    } else { val += c; }
+                                } else {
+                                    if (c === '"') { inQ = true; }
+                                    else if (c === ',') { ret.push(val.trim()); val = ''; }
+                                    else { val += c; }
+                                }
+                            }
+                            ret.push(val.trim());
+                            return ret;
+                        };
+
+                        const promises = dataRows.map(row => {
+                            const cols = parseCSVRow(row);
+                            if (cols.length < 2) return null;
+                            
+                            const id = cols[0] || Date.now().toString() + Math.random().toString().slice(2,5);
+                            const lat = cols[7] ? String(cols[7]).trim() : '';
+                            const lng = cols[8] ? String(cols[8]).trim() : '';
+                            
+                            if (!lat && !lng) return null;
+
+                            const item = {
+                                id: id, 
+                                mainType: cols[1] || '明信片', 
+                                category: cols[2] || '', 
+                                series: cols[3] || '',
+                                name: cols[4] || '', 
+                                type: cols[5] || '', 
+                                region: cols[6] || '', 
+                                lat: lat, 
+                                lng: lng,
+                                note: cols[9] || '', 
+                                lastUpdated: cols[10] || new Date().toISOString(), 
+                                imageUrl: cols[11] || ''
+                            };
+                            return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pikmin_postcards', id), item, { merge: true });
+                        }).filter(p => p !== null);
+                        
+                        if (promises.length === 0) {
+                            alert("沒有找到有效的資料，請確認你是否有填寫經緯度。");
+                        } else {
+                            await Promise.all(promises);
+                            alert(`匯入完成！成功匯入 ${promises.length} 筆資料。`);
+                        }
+
+                    } catch (error) { 
+                        alert("匯入失敗，請確認格式是否正確。錯誤訊息: " + error.message); 
+                    } finally { 
+                        setIsImporting(false); e.target.value = ''; 
                     }
-                    return b.whiteRate - a.whiteRate;
-                });
-
-                return rankingData;
+                };
+                reader.readAsText(file);
             };
+
+            const availableCategories = useMemo(() => {
+                return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.category).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const categories = useMemo(() => ["全部", ...availableCategories], [availableCategories]);
+
+            useEffect(() => {
+                if (filterCategory !== "全部") {
+                    const subCatsInCurrentCategory = [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))];
+                    if (filterSubCategory !== "全部" && !subCatsInCurrentCategory.includes(filterSubCategory)) {
+                        setFilterSubCategory("全部");
+                    }
+                }
+            }, [filterCategory, postcards, filterSubCategory]);
+
+            const availableSubCategoriesForFilter = useMemo(() => {
+                if (filterCategory === "全部") {
+                    return [...new Set(postcards.filter(p => (p.mainType || '明信片') === '明信片').map(p => p.series).filter(Boolean))].sort();
+                } else {
+                    return [...new Set(postcards.filter(p => p.category === filterCategory).map(p => p.series).filter(Boolean))].sort();
+                }
+            }, [postcards, filterCategory]);
+
+            const availablePureTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '純點').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const availableEventTypes = useMemo(() => {
+                return [...new Set(postcards.filter(p => p.mainType === '活動金盆').map(p => p.type).filter(Boolean))].sort();
+            }, [postcards]);
+            
+            const formAvailableSubCategories = useMemo(() => {
+                const filtered = postcards.filter(p => {
+                    if ((p.mainType || '明信片') !== '明信片') return false;
+                    if (formData.category && p.category !== formData.category) return false;
+                    return true;
+                });
+                return [...new Set(filtered.map(p => p.series).filter(Boolean))].sort();
+            }, [postcards, formData.category]);
+
+            const displayedItems = postcards.filter(item => {
+                const itemMainType = item.mainType || '明信片';
+                if (itemMainType !== mainTab) return false;
+                
+                const s = searchTerm.toLowerCase();
+                const matchesSearch = (item.name || "").toLowerCase().includes(s) || 
+                                      (item.type || "").toLowerCase().includes(s) || 
+                                      (item.series || "").toLowerCase().includes(s) || 
+                                      (item.region || "").toLowerCase().includes(s) ||
+                                      (item.note || "").toLowerCase().includes(s);
+                                      
+                if (mainTab === '明信片') {
+                    const matchesCategory = filterCategory === "全部" || item.category === filterCategory;
+                    const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
+                } else if (mainTab === '純點' || mainTab === '活動金盆') {
+                    const matchesType = filterType === "全部" || item.type === filterType;
+                    return matchesType && matchesSearch;
+                }
+            });
+
+            const groupedPostcards = displayedItems.reduce((groups, item) => {
+                const key = mainTab === '明信片' ? (item.series || "未分類") : (item.type || "未分類");
+                if (!groups[key]) groups[key] = { items: [], lastUpdated: null };
+                groups[key].items.push(item);
+                
+                const itemTime = new Date(item.lastUpdated || 0).getTime();
+                if (!groups[key].lastUpdated || itemTime > groups[key].lastUpdated) {
+                    groups[key].lastUpdated = itemTime;
+                }
+                
+                return groups;
+            }, {});
 
             return (
-                <div className="pb-20">
-                    <header className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg sticky top-0 z-20">
+                <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
+                    <header className="bg-emerald-600 text-white shadow-lg sticky top-0 z-20">
                         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                                <Icon path={ICONS.Flower} className="text-emerald-100" />
+                                <Icon path={ICONS.Leaf} className="text-emerald-100" />
                                 <div className="flex flex-col">
-                                    <h1 className="text-xl font-black tracking-wide leading-tight">Pikmin bloom 花朵變異圖鑑</h1>
-                                    {!loading && <span className="text-[10px] text-emerald-200/80 font-medium">最後更新: {lastUpdatedTime}</span>}
+                                    <h1 className="text-xl font-bold">Pikmin Bloom 座標圖鑑</h1>
+                                    <span className="text-[10px] text-emerald-200 font-medium tracking-wider">最新更新: {globalLastUpdated}</span>
                                 </div>
                             </div>
-                            <div className="flex gap-3 items-center">
-                                <button onClick={handleLogin} disabled={isLoggingIn} className={`p-2 rounded-full transition-colors ${isAdmin ? 'bg-white/20 text-yellow-300' : 'hover:bg-white/10 text-emerald-100'} ${isLoggingIn ? 'opacity-50 cursor-wait' : ''}`}>
-                                    {isLoggingIn ? <div className="w-4 h-4 border-2 border-emerald-100 border-t-transparent rounded-full animate-spin"></div> : <Icon path={isAdmin ? ICONS.Unlock : ICONS.Lock} />}
-                                </button>
+                            <div className="flex gap-2 items-center">
+                                <button onClick={handleAdminLogin} className={`p-2 rounded-full hover:bg-emerald-700 transition-colors ${isAdmin ? 'text-yellow-300' : 'text-emerald-200'}`}><Icon path={ICONS.Lock} /></button>
                                 {isAdmin && (
-                                    <button onClick={handleOpenModalNew} className="bg-white text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-full font-bold flex items-center gap-1 text-sm shadow-sm transition-transform active:scale-95 disabled:opacity-50" disabled={isSubmitting}>
-                                        <Icon path={ICONS.Plus} /> 新增紀錄
-                                    </button>
+                                    <>
+                                        <button onClick={handleExportCSV} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2"><Icon path={ICONS.Download} />匯出</button>
+                                        
+                                        <button onClick={handleDownloadTemplate} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">
+                                            <Icon path={ICONS.Clipboard} />範本
+                                        </button>
+
+                                        {selectedIds.size > 0 && (
+                                            <button onClick={handleBatchDelete} className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 animate-pulse"><Icon path={ICONS.Trash2} /> 刪除 ({selectedIds.size})</button>
+                                        )}
+                                        <input type="file" ref={csvInputRef} onChange={handleImportCSV} accept=".csv" className="hidden" />
+                                        <button onClick={() => csvInputRef.current?.click()} disabled={isImporting} className="bg-emerald-700/50 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2">{isImporting ? "匯入中..." : <><Icon path={ICONS.Upload} />匯入</>}</button>
+                                        <button onClick={() => handleOpenModal()} className="bg-white text-emerald-700 hover:bg-lime-50 px-3 py-2 rounded-lg font-bold flex items-center gap-2 text-sm"><Icon path={ICONS.Plus} />新增</button>
+                                    </>
                                 )}
                             </div>
                         </div>
                     </header>
-
                     <main className="max-w-5xl mx-auto px-4 py-6">
-                        {loading ? (
-                            <div className="text-center py-20 flex flex-col items-center">
-                                <div className="w-10 h-10 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-4"></div>
-                                <p className="text-emerald-700 font-bold animate-pulse">正在讀取最新數據...</p>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="flex border-b border-emerald-100 mb-6 bg-white rounded-t-xl px-2 pt-2">
-                                    <button 
-                                        onClick={() => setCurrentTab('圖鑑')} 
-                                        className={`flex-1 py-3 px-4 text-center text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${currentTab === '圖鑑' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <Icon path={ICONS.Flower}/> 詳細實驗圖鑑
-                                    </button>
-                                    <button 
-                                        onClick={() => setCurrentTab('排行')} 
-                                        className={`flex-1 py-3 px-4 text-center text-sm font-bold border-b-2 transition-colors flex items-center justify-center gap-2 ${currentTab === '排行' ? 'border-emerald-500 text-emerald-700' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                                    >
-                                        <Icon path={ICONS.BarChart}/> ⚪出白率排行
-                                    </button>
+                        
+                        {isAdmin && missingRegionsCount > 0 && (
+                            <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex flex-wrap gap-4 items-center justify-between">
+                                <div className="text-amber-800 text-sm font-bold flex items-center gap-2">
+                                    <Icon path={ICONS.AlertTriangle} className="text-amber-500 w-5 h-5" /> 
+                                    發現 {missingRegionsCount} 個有座標但缺少地區的地點
                                 </div>
+                                <button 
+                                    onClick={handleAutoFillRegions} 
+                                    disabled={isAutoFilling}
+                                    className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm transition-colors disabled:opacity-50 flex items-center gap-2 min-w-[140px] justify-center"
+                                >
+                                    {isAutoFilling ? (
+                                        <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 解析中 ({autoFillProgress.current}/{autoFillProgress.total})...</>
+                                    ) : (
+                                        <><Icon path={ICONS.MapPin} className="w-3 h-3" /> 自動補全地區</>
+                                    )}
+                                </button>
+                            </div>
+                        )}
 
-                                {currentTab === '圖鑑' ? (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        {flowers.map(item => {
-                                            const totalW = item.records.reduce((s, r) => s + r.w, 0);
-                                            const totalB = item.records.reduce((s, r) => s + r.b, 0);
-                                            const totalY = item.records.reduce((s, r) => s + r.y, 0);
-                                            const totalR = item.records.reduce((s, r) => s + r.r, 0);
-                                            const total = totalW + totalB + totalY + totalR;
-                                            
-                                            const pW = total ? ((totalW/total)*100).toFixed(1) : "0.0";
-                                            const pB = total ? ((totalB/total)*100).toFixed(1) : "0.0";
-                                            const pY = total ? ((totalY/total)*100).toFixed(1) : "0.0";
-                                            const pR = total ? ((totalR/total)*100).toFixed(1) : "0.0";
-
-                                            const isExpanded = expandedFlowers.has(item.name);
-
-                                            const groupedByMethod = item.records.reduce((acc, r) => {
-                                                if (!acc[r.method]) acc[r.method] = { w:0, b:0, y:0, r:0, count:0, list:[] };
-                                                acc[r.method].w += r.w; acc[r.method].b += r.b; acc[r.method].y += r.y; acc[r.method].r += r.r;
-                                                acc[r.method].count += 1;
-                                                acc[r.method].list.push(r);
-                                                return acc;
-                                            }, {});
-
-                                            let flowerLastUpdated = "無紀錄";
-                                            if (item.records && item.records.length > 0) {
-                                                const validDates = item.records
-                                                    .map(r => new Date(r.date))
-                                                    .filter(d => !isNaN(d.getTime()));
-                                                
-                                                if (validDates.length > 0) {
-                                                    const latestDate = new Date(Math.max(...validDates));
-                                                    flowerLastUpdated = `${latestDate.getFullYear()}-${String(latestDate.getMonth() + 1).padStart(2, '0')}-${String(latestDate.getDate()).padStart(2, '0')}`;
-                                                }
-                                            }
-
-                                            return (
-                                                <div key={item.name} className="bg-white rounded-3xl shadow-sm border border-emerald-100/60 overflow-hidden hover:shadow-md transition-shadow">
-                                                    {item.imageUrl ? (
-                                                        <div className="h-48 w-full bg-slate-50 relative p-2 border-b border-slate-100">
-                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
-                                                        </div>
-                                                    ) : (
-                                                        <div className="h-20 w-full bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center justify-center border-b border-emerald-100/50">
-                                                            <Icon path={ICONS.Flower} className="text-emerald-200 opacity-60 w-8 h-8" />
-                                                        </div>
-                                                    )}
-                                                    
-                                                    <div className="p-6">
-                                                        <div className="flex justify-between items-end mb-4">
-                                                            <div>
-                                                                <h3 className="text-2xl font-black text-slate-800">{item.name}</h3>
-                                                                <div className="text-[10px] font-bold text-slate-400 mt-1">
-                                                                    最後新增: {flowerLastUpdated}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex flex-col items-end">
-                                                                <span className="text-[10px] font-bold text-slate-400 mb-0.5">總樣本數</span>
-                                                                <span className="text-sm font-black text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full">{total}</span>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {renderProgressBar(totalW, totalB, totalY, totalR)}
-                                                        
-                                                        <div className="flex justify-between text-base font-extrabold text-slate-600 mt-4 mb-2 px-1">
-                                                            <div className="flex flex-col items-center text-slate-500">
-                                                                <span>⚪ {pW}%</span>
-                                                                <span className="text-xs font-bold bg-slate-100 px-2.5 py-0.5 rounded-full mt-1.5">{totalW} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-blue-500">
-                                                                <span>🔵 {pB}%</span>
-                                                                <span className="text-xs font-bold bg-blue-50 px-2.5 py-0.5 rounded-full mt-1.5">{totalB} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-yellow-600">
-                                                                <span>🟡 {pY}%</span>
-                                                                <span className="text-xs font-bold bg-yellow-50 px-2.5 py-0.5 rounded-full mt-1.5">{totalY} 朵</span>
-                                                            </div>
-                                                            <div className="flex flex-col items-center text-red-500">
-                                                                <span>🔴 {pR}%</span>
-                                                                <span className="text-xs font-bold bg-red-50 px-2.5 py-0.5 rounded-full mt-1.5">{totalR} 朵</span>
-                                                            </div>
-                                                        </div>
-
-                                                        <button onClick={() => toggleExpandFlower(item.name)} className="w-full mt-6 py-3 bg-slate-50 hover:bg-emerald-50 text-slate-500 hover:text-emerald-700 rounded-xl text-sm font-bold flex justify-center items-center gap-1.5 transition-colors">
-                                                            {isExpanded ? <><Icon path={ICONS.ChevronUp}/> 收起詳細實驗數據</> : <><Icon path={ICONS.ChevronDown}/> 展開詳細實驗數據</>}
-                                                        </button>
-
-                                                        {isExpanded && (
-                                                            <div className="mt-5 pt-5 border-t-2 border-dashed border-slate-100 space-y-6">
-                                                                {Object.keys(groupedByMethod).length === 0 ? (
-                                                                    <p className="text-center text-sm font-medium text-slate-400 py-4">目前尚無實驗紀錄</p>
-                                                                ) : (
-                                                                    Object.entries(groupedByMethod).map(([method, stats]) => {
-                                                                        const stTotal = stats.w + stats.b + stats.y + stats.r;
-                                                                        return (
-                                                                            <div key={method} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-                                                                                <div className="flex justify-between items-center mb-3">
-                                                                                    <span className="text-sm font-black text-emerald-800 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-lg">🏷️ {method}</span>
-                                                                                    <span className="text-xs font-bold text-slate-400">共 {stTotal} 朵</span>
-                                                                                </div>
-                                                                                {renderProgressBar(stats.w, stats.b, stats.y, stats.r)}
-                                                                                
-                                                                                <div className="flex justify-between text-sm font-extrabold text-slate-500 mt-3 mb-4">
-                                                                                    <span className="text-slate-500">⚪ {stTotal ? ((stats.w/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-blue-500">🔵 {stTotal ? ((stats.b/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-yellow-600">🟡 {stTotal ? ((stats.y/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                    <span className="text-red-500">🔴 {stTotal ? ((stats.r/stTotal)*100).toFixed(1) : "0.0"}%</span>
-                                                                                </div>
-
-                                                                                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                                                                                    <p className="text-[10px] font-bold text-slate-400 mb-2">實驗明細：</p>
-                                                                                    {stats.list.map((r, i) => {
-                                                                                        const rTotal = r.w + r.b + r.y + r.r;
-                                                                                        const rpW = rTotal ? ((r.w/rTotal)*100).toFixed(0) : "0";
-                                                                                        const rpB = rTotal ? ((r.b/rTotal)*100).toFixed(0) : "0";
-                                                                                        const rpY = rTotal ? ((r.y/rTotal)*100).toFixed(0) : "0";
-                                                                                        const rpR = rTotal ? ((r.r/rTotal)*100).toFixed(0) : "0";
-
-                                                                                        return (
-                                                                                            <div key={i} className="flex flex-col bg-slate-50 p-2.5 rounded-lg border border-transparent hover:border-emerald-100 hover:bg-emerald-50 transition-colors">
-                                                                                                <div className="flex justify-between items-center text-xs font-bold text-slate-500 mb-1.5">
-                                                                                                    <span>📅 {r.date}</span>
-                                                                                                    <div className="flex items-center gap-2">
-                                                                                                        <span className="tracking-widest">⚪{r.w} 🔵{r.b} 🟡{r.y} 🔴{r.r}</span>
-                                                                                                        {isAdmin && (
-                                                                                                            <div className="flex gap-1 ml-2 pl-2 border-l border-slate-200">
-                                                                                                                <button onClick={() => handleEditRecord(item.name, r)} disabled={isSubmitting} className="text-emerald-500 hover:text-emerald-700 bg-white p-1 rounded shadow-sm border border-slate-100 disabled:opacity-50"><Icon path={ICONS.Edit2}/></button>
-                                                                                                                <button onClick={() => handleDeleteRecord(r._rowNumber)} disabled={isSubmitting} className="text-red-400 hover:text-red-600 bg-white p-1 rounded shadow-sm border border-slate-100 disabled:opacity-50"><Icon path={ICONS.Trash2}/></button>
-                                                                                                            </div>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                                
-                                                                                                <div className="flex justify-between items-center">
-                                                                                                    <div className="flex-1 mr-4">
-                                                                                                        {renderMiniProgressBar(r.w, r.b, r.y, r.r)}
-                                                                                                    </div>
-                                                                                                    <div className="flex gap-2 text-[10px] font-bold">
-                                                                                                        <span className="text-slate-400">{rpW}%</span>
-                                                                                                        <span className="text-blue-400">{rpB}%</span>
-                                                                                                        <span className="text-yellow-500">{rpY}%</span>
-                                                                                                        <span className="text-red-400">{rpR}%</span>
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                                
-                                                                                                {(r.country || (isAdmin && r.lat && r.lng)) && (
-                                                                                                    <div className="flex items-center gap-1 text-[10px] text-slate-500 bg-white w-fit px-2 py-1 rounded border border-slate-100 mt-2">
-                                                                                                        <Icon path={ICONS.MapPin} className="w-3 h-3 text-emerald-500" />
-                                                                                                        
-                                                                                                        {/* 使用本地化字典強制轉換為繁體 */}
-                                                                                                        {r.country && <span className="font-bold text-emerald-700">{cleanCountryName(r.country)}</span>}
-                                                                                                        
-                                                                                                        {(isAdmin && r.lat && r.lng) && (
-                                                                                                            <a href={`https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline ml-1">
-                                                                                                                ({r.lat}, {r.lng})
-                                                                                                            </a>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        );
-                                                                                    })}
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })
-                                                                )}
-                                                                {isAdmin && (
-                                                                    <button onClick={() => handleOpenModalRecord(item)} disabled={isSubmitting} className="w-full py-3 bg-emerald-50 text-emerald-700 font-bold text-sm rounded-xl flex justify-center items-center gap-1.5 hover:bg-emerald-100 transition-colors border border-emerald-200 border-dashed disabled:opacity-50">
-                                                                        <Icon path={ICONS.Plus}/> 新增「{item.name}」的實驗紀錄
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                ) : (
-                                    <div className="bg-white rounded-3xl shadow-sm border border-emerald-100 p-6">
-                                        <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-                                            <h2 className="text-2xl font-black text-slate-800">⚪ 出白率總排行榜</h2>
-                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">僅統計有樣本之花朵</span>
+                        {loading && <div className="text-center py-10">載入中...</div>}
+                        {!loading && (
+                            <>
+                                <div className="flex border-b border-slate-200 mb-6 overflow-x-auto scrollbar-hide">
+                                    <button onClick={() => setMainTab('明信片')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '明信片' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>明信片</button>
+                                    <button onClick={() => setMainTab('純點')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '純點' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-500'}`}>純點</button>
+                                    <button onClick={() => setMainTab('活動金盆')} className={`whitespace-nowrap pb-3 px-6 text-sm font-bold border-b-2 transition-colors ${mainTab === '活動金盆' ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500'}`}>活動金盆</button>
+                                </div>
+                                
+                                {mainTab === '明信片' && (
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">大類別</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterCategory}
+                                                onChange={e => setFilterCategory(e.target.value)}
+                                            >
+                                                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                            </select>
                                         </div>
-                                        <div className="space-y-4">
-                                            {getWhiteRateRanking().map((item, index) => {
-                                                let crownColor = "text-transparent";
-                                                if (index === 0) crownColor = "text-yellow-400";
-                                                else if (index === 1) crownColor = "text-slate-300";
-                                                else if (index === 2) crownColor = "text-amber-600";
-
-                                                return (
-                                                    <div key={item.name} className="flex items-center bg-slate-50 hover:bg-emerald-50 transition-colors p-4 rounded-2xl border border-slate-100">
-                                                        <div className="w-10 flex flex-col items-center justify-center mr-2">
-                                                            {index < 3 ? <Icon path={ICONS.Crown} className={`w-5 h-5 mb-0.5 ${crownColor}`} /> : null}
-                                                            <span className={`text-lg font-black ${index < 3 ? 'text-slate-700' : 'text-slate-400'}`}>#{index + 1}</span>
-                                                        </div>
-                                                        
-                                                        {item.imageUrl ? (
-                                                            <div className="w-12 h-12 bg-white rounded-full p-1 border border-slate-200 shadow-sm mr-4 shrink-0">
-                                                                <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain rounded-full" />
-                                                            </div>
-                                                        ) : (
-                                                            <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mr-4 shrink-0 border border-emerald-200">
-                                                                <Icon path={ICONS.Flower} className="text-emerald-500 opacity-60 w-5 h-5" />
-                                                            </div>
-                                                        )}
-
-                                                        <div className="flex-1 min-w-0 pr-4">
-                                                            <h3 className="text-base font-black text-slate-800 truncate">{item.name}</h3>
-                                                            <div className="text-xs font-bold text-slate-500 mt-1">
-                                                                總白花: <span className="text-slate-700">{item.totalW}</span> / 總樣本: {item.totalSamples}
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex flex-col items-end shrink-0 pl-4 border-l border-slate-200/50">
-                                                            <span className="text-[10px] font-bold text-slate-400 mb-1">出白機率</span>
-                                                            <div className="text-2xl font-black text-slate-600 flex items-baseline">
-                                                                {item.pW}<span className="text-sm ml-0.5 text-slate-400">%</span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                            {getWhiteRateRanking().length === 0 && (
-                                                <div className="text-center py-10 text-slate-400 font-bold">
-                                                    目前沒有任何實驗紀錄可以排行喔！
-                                                </div>
-                                            )}
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">子類別</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                                                value={filterSubCategory}
+                                                onChange={e => setFilterSubCategory(e.target.value)}
+                                                disabled={availableSubCategoriesForFilter.length === 0}
+                                            >
+                                                <option value="全部">全部</option>
+                                                {availableSubCategoriesForFilter.map(subCat => <option key={subCat} value={subCat}>{subCat}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">點位屬性</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterType}
+                                                onChange={e => setFilterType(e.target.value)}
+                                            >
+                                                <option value="全部">全部</option>
+                                                <option value="蘑菇">蘑菇</option>
+                                                <option value="花點">花點</option>
+                                                <option value="隱藏">隱藏</option>
+                                                <option value="已下架">已下架</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                            </div>
                                         </div>
                                     </div>
                                 )}
+
+                                {(mainTab === '純點' || mainTab === '活動金盆') && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">{mainTab === '純點' ? '純點分類' : '活動類型'}</label>
+                                            <select 
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={filterType}
+                                                onChange={e => setFilterType(e.target.value)}
+                                            >
+                                                <option value="全部">全部</option>
+                                                {mainTab === '純點' 
+                                                    ? availablePureTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                    : availableEventTypes.map(t => <option key={t} value={t}>{t}</option>)
+                                                }
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 mb-1">關鍵字搜尋</label>
+                                            <div className="relative w-full">
+                                                <div className="absolute left-3 top-2.5 text-slate-400"><Icon path={ICONS.Search} /></div>
+                                                <input type="text" placeholder="名稱/地區/備註..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-1 focus:ring-emerald-500 outline-none" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                <div className="space-y-8">
+                                    {displayedItems.length === 0 ? (
+                                        <div className="text-center py-20 text-slate-400 font-bold">
+                                            找不到符合條件的資料喔！
+                                        </div>
+                                    ) : (
+                                        Object.entries(groupedPostcards).map(([groupKey, groupData]) => (
+                                            <section key={groupKey}>
+                                                <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                    <div className="flex flex-col">
+                                                        <h2 className="text-xl font-bold text-slate-700 leading-tight">{groupKey}</h2>
+                                                        <span className="text-[10px] text-slate-400 font-bold tracking-wide">
+                                                            上次更新: {formatDateTime(groupData.lastUpdated)}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full ml-1">{groupData.items.length} 筆</span>
+                                                    {isAdmin && (
+                                                        <button onClick={() => handleGroupDelete(groupKey, groupData.items)} className="text-slate-300 hover:text-red-500 transition-colors ml-auto"><Icon path={ICONS.Trash2} /></button>
+                                                    )}
+                                                </div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start">
+                                                    {groupData.items.map(item => (
+                                                        <div key={item.id} className="bg-white rounded-xl shadow-sm border border-slate-100 p-5 relative group flex flex-col h-full">
+                                                            {isAdmin && (
+                                                                <>
+                                                                    <div className="absolute top-4 left-4 z-10"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={(e) => {e.stopPropagation(); toggleSelection(item.id);}} className="w-5 h-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer shadow-sm" /></div>
+                                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenModal(item); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-blue-500 shadow-sm"><Icon path={ICONS.Edit2} /></button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }} className="p-1.5 bg-white border rounded text-slate-400 hover:text-red-500 shadow-sm"><Icon path={ICONS.Trash2} /></button>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                            {mainTab === '明信片' && (
+                                                                <>
+                                                                    {item.imageUrl && (
+                                                                        <div className={`mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0 ${item.type === '已下架' ? 'grayscale opacity-75' : ''}`}>
+                                                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
+                                                                        </div>
+                                                                    )}
+                                                                    <div className={`mb-3 flex items-center justify-between shrink-0 ${!item.imageUrl ? '' : 'pt-1'}`}>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                                                                                item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
+                                                                                item.type === '花點' ? 'bg-pink-100 text-pink-700' : 
+                                                                                item.type === '已下架' ? 'bg-slate-700 text-slate-100' :
+                                                                                'bg-indigo-100 text-indigo-700'
+                                                                            }`}>{item.type}</span>
+                                                                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                            {mainTab === '純點' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-blue-100 text-blue-700 mr-2">純點</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            {mainTab === '活動金盆' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
+                                                            
+                                                            {mainTab !== '純點' && (
+                                                                <h3 className="text-base font-bold text-slate-800 mb-3 break-words leading-snug shrink-0">{item.name || '未命名項目'}</h3>
+                                                            )}
+
+                                                            <div className="space-y-3 text-sm text-slate-600 flex-1 flex flex-col justify-end mt-auto pt-2">
+                                                                <div className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-100">
+                                                                    {item.region ? (
+                                                                        <div className="flex flex-col mb-2 pb-2 border-b border-slate-200/50">
+                                                                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                                                                                <Icon path={ICONS.MapPin} /> {item.region}
+                                                                            </div>
+                                                                            <LocalTimeDisplay lat={item.lat} lng={item.lng} />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-xs text-slate-400 italic flex items-center gap-1"><Icon path={ICONS.MapPin} /> 座標資訊已隱藏</div>
+                                                                    )}
+                                                                    
+                                                                    <div className="flex justify-between items-center group/lat"><div className="flex gap-2 items-center"><span className="text-[10px] font-bold text-slate-400 w-8">Lat</span><code className="text-xs font-mono bg-white px-1 rounded">{item.lat}</code></div><button onClick={() => handleCopyText(item.lat, `${item.id}-lat`)} className="text-slate-400 hover:text-emerald-500 transition-colors"><Icon path={copyFeedback === `${item.id}-lat` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="flex justify-between items-center group/lng border-t border-slate-200/50 pt-2"><div className="flex gap-2 items-center"><span className="text-[10px] font-bold text-slate-400 w-8">Lng</span><code className="text-xs font-mono bg-white px-1 rounded">{item.lng}</code></div><button onClick={() => handleCopyText(item.lng, `${item.id}-lng`)} className="text-slate-400 hover:text-emerald-500 transition-colors"><Icon path={copyFeedback === `${item.id}-lng` ? ICONS.Check : ICONS.Copy} /></button></div>
+                                                                    <div className="border-t border-slate-200/50 pt-2 mt-1">
+                                                                        <button onClick={() => handleCopyText(`${item.lat},${item.lng}`, `${item.id}-all`)} className="w-full py-1.5 bg-white border border-emerald-200 text-emerald-600 rounded text-xs font-bold flex items-center justify-center gap-1 hover:bg-emerald-50 transition-colors shadow-sm">
+                                                                            <Icon path={copyFeedback === `${item.id}-all` ? ICONS.Check : ICONS.Copy} /> 複製完整座標
+                                                                        </button>
+                                                                    </div>
+                                                                    
+                                                                    {item.note && (
+                                                                        <div className="mt-3 bg-yellow-50/50 border border-yellow-100 rounded p-2 pt-1.5">
+                                                                            <div className="text-[10px] font-bold text-yellow-600 mb-0.5 flex items-center gap-1"><Icon path={ICONS.FileText} className="w-3 h-3"/> 備註</div>
+                                                                            <div className="text-xs text-yellow-800 whitespace-pre-wrap leading-relaxed">{item.note}</div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                
+                                                                <div className="flex gap-2 mt-2">
+                                                                    <a href={`http://maps.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm">
+                                                                        <Icon path={ICONS.ExternalLink} /> Google 地圖
+                                                                    </a>
+                                                                    <a href={`https://intel.ingress.com/?ll=${item.lat},${item.lng}&z=18`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 hover:bg-indigo-100 transition-colors text-indigo-700 rounded-lg text-xs font-medium border border-indigo-200 shadow-sm">
+                                                                        <Icon path={ICONS.Locate} /> 查 Intel Map
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </section>
+                                        ))
+                                    )}
+                                </div>
                             </>
                         )}
                     </main>
 
+                    {deleteId && (
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-600"><Icon path={ICONS.AlertTriangle} /></div>
+                                <h3 className="text-lg font-bold mb-2">確定要刪除嗎？</h3>
+                                <div className="flex gap-3 mt-6"><button onClick={() => setDeleteId(null)} className="flex-1 py-2 rounded-lg border font-bold text-slate-600 hover:bg-slate-50 transition-colors">取消</button><button onClick={confirmDelete} className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-700 transition-colors font-bold text-white shadow-md">確認刪除</button></div>
+                            </div>
+                        </div>
+                    )}
+
                     {isModalOpen && (
-                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
-                                <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-                                    <h3 className="text-xl font-black text-emerald-700 flex items-center gap-2">
-                                        <Icon path={formData._rowNumber ? ICONS.Edit2 : ICONS.Plus} /> 
-                                        {formData._rowNumber ? `編輯實驗紀錄` : `新增花朵紀錄`}
-                                    </h3>
-                                    <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-1.5 rounded-full"><Icon path={ICONS.X} /></button>
-                                </div>
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+                                <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-2xl"><h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Icon path={editingItem ? ICONS.Edit2 : ICONS.Plus} /> {editingItem ? '編輯資料' : '新增資料'}</h3><button onClick={() => setIsModalOpen(false)} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 transition-colors"><Icon path={ICONS.X} /></button></div>
                                 <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto">
+                                    {!editingItem && (
+                                        <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg gap-1 mb-2 shadow-inner">
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '明信片', type: '蘑菇' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '明信片' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>明信片</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '純點', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '純點' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>純點</button>
+                                            <button type="button" onClick={() => setFormData({ ...formData, mainType: '活動金盆', type: '' })} className={`flex-1 py-1.5 text-xs font-bold rounded transition-all ${formData.mainType === '活動金盆' ? 'bg-white shadow-sm text-emerald-600 ring-1 ring-black/5' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'}`}>活動金盆</button>
+                                        </div>
+                                    )}
                                     
-                                    <div className="bg-emerald-50 p-4 rounded-2xl space-y-4 border border-emerald-100">
-                                        <div>
-                                            <label className="text-sm font-black text-slate-700 block mb-1.5">1. 花朵名稱 (必填)</label>
-                                            <input list="flower-opts" required className="w-full border-0 rounded-xl p-3 text-base shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="例如：油菜花" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                                            <datalist id="flower-opts">
-                                                {availableFlowerNames.map(f => <option key={f} value={f} />)}
-                                            </datalist>
-                                        </div>
-                                        <div>
-                                            <label className="text-sm font-black text-slate-700 flex items-center gap-1 mb-1.5">
-                                                2. 花朵封面圖片網址 <span className="text-xs font-medium text-emerald-500">(無則留空)</span>
-                                            </label>
-                                            <div className="relative">
-                                                <div className="absolute left-3 top-3.5 text-slate-400"><Icon path={ICONS.Link} /></div>
-                                                <input type="url" placeholder="https://i.imgur.com/..." className="w-full border-0 rounded-xl pl-9 pr-3 py-3 text-sm shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none" value={formData.imageUrl} onChange={e => setFormData({ ...formData, imageUrl: e.target.value })} />
+                                    {formData.mainType === '明信片' ? (
+                                        <>
+                                            <div className="space-y-2">
+                                                <label className="flex items-center justify-between text-xs font-bold text-slate-500">
+                                                    <span>明信片照片</span>
+                                                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded shadow-sm">支援 Ctrl+V 貼上圖片</span>
+                                                </label>
+                                                <input type="file" ref={fileInputRef} onChange={handleImageChange} accept="image/*" className="hidden" />
+                                                {formData.imageUrl ? (
+                                                    <div className="relative rounded-xl overflow-hidden border border-slate-200 shadow-inner group h-48 bg-slate-50 flex items-center justify-center">
+                                                        <img src={formData.imageUrl} alt="Preview" className="max-w-full max-h-full object-contain p-2" />
+                                                        <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 transition-opacity backdrop-blur-sm">
+                                                            <button type="button" onClick={() => fileInputRef.current?.click()} className="bg-white hover:bg-slate-100 text-slate-700 px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors">更換圖片</button>
+                                                            <button type="button" onClick={handleRemoveImage} className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-colors">移除圖片</button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-32 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 transition-colors group shadow-sm bg-slate-50">
+                                                        <div className="p-3 bg-white rounded-full shadow-sm mb-2 group-hover:scale-110 transition-transform"><Icon path={ICONS.Upload} /></div>
+                                                        <span className="text-sm font-bold">點擊上傳 / Ctrl+V 貼上圖片</span>
+                                                    </button>
+                                                )}
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-slate-50 p-4 rounded-2xl space-y-4 border border-slate-100">
-                                        <h4 className="text-sm font-black text-slate-700 border-b border-slate-200 pb-2">3. 實驗數據 (必填)</h4>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-xs font-bold text-slate-500 block mb-1">實驗日期</label><input type="date" required className="w-full border-0 shadow-sm rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>
-                                            <div><label className="text-xs font-bold text-slate-500 block mb-1">種法 (Tag)</label><input type="text" required placeholder="例如: 雙色+櫻花" className="w-full border-0 shadow-sm rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-500" value={formData.method} onChange={e => setFormData({ ...formData, method: e.target.value })} /></div>
-                                        </div>
-                                        <div className="grid grid-cols-4 gap-3 pt-2">
-                                            <div><label className="text-sm font-black text-slate-400 block mb-1.5 text-center">白</label><input type="number" min="0" required className="w-full border-0 shadow-sm rounded-xl p-2.5 text-base text-center outline-none focus:ring-2 focus:ring-slate-300" value={formData.w} onChange={e => setFormData({...formData, w: e.target.value})} /></div>
-                                            <div><label className="text-sm font-black text-blue-500 block mb-1.5 text-center">藍</label><input type="number" min="0" required className="w-full border-0 shadow-sm rounded-xl p-2.5 text-base text-center text-blue-700 bg-blue-50 outline-none focus:ring-2 focus:ring-blue-300" value={formData.b} onChange={e => setFormData({...formData, b: e.target.value})} /></div>
-                                            <div><label className="text-sm font-black text-yellow-500 block mb-1.5 text-center">黃</label><input type="number" min="0" required className="w-full border-0 shadow-sm rounded-xl p-2.5 text-base text-center text-yellow-700 bg-yellow-50 outline-none focus:ring-2 focus:ring-yellow-300" value={formData.y} onChange={e => setFormData({...formData, y: e.target.value})} /></div>
-                                            <div><label className="text-sm font-black text-red-500 block mb-1.5 text-center">紅</label><input type="number" min="0" required className="w-full border-0 shadow-sm rounded-xl p-2.5 text-base text-center text-red-700 bg-red-50 outline-none focus:ring-2 focus:ring-red-300" value={formData.r} onChange={e => setFormData({...formData, r: e.target.value})} /></div>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-sky-50 p-4 rounded-2xl space-y-4 border border-sky-100">
-                                        <div className="flex justify-between items-center border-b border-sky-200 pb-2">
-                                            <h4 className="text-sm font-black text-sky-700">4. 地點資訊 (選填)</h4>
-                                            <button type="button" onClick={handleGetLocation} disabled={isFetchingGPS} className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-colors disabled:opacity-50">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">大類別</label><input list="cat-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 動物園" value={formData.category ?? ''} onChange={e => setFormData({ ...formData, category: e.target.value })} /><datalist id="cat-opts">{categories.filter(c => c !== "全部").map(c => <option key={c} value={c} />)}</datalist></div>
+                                                <div>
+                                                    <label className="text-xs font-bold text-slate-500 block mb-1.5">點位屬性</label>
+                                                    <select className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm bg-white" value={formData.type ?? ''} onChange={e => setFormData({ ...formData, type: e.target.value })}>
+                                                        <option value="蘑菇">🍄 蘑菇</option>
+                                                        <option value="花點">🌸 花點</option>
+                                                        <option value="隱藏">❓ 隱藏點</option>
+                                                        <option value="已下架">🪦 已下架 (遺照)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">子類別</label><input list="form-sub-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北市立動物園" value={formData.series ?? ''} onChange={e => setFormData({ ...formData, series: e.target.value })} /><datalist id="form-sub-opts">{formAvailableSubCategories.map(s => <option key={s} value={s} />)}</datalist></div>
+                                            <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 企鵝館看板" value={formData.name ?? ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-500 block mb-1.5">{formData.mainType === '活動金盆' ? '活動類型' : '純點分類'}</label>
+                                                <input list="pure-opts" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 2024週年慶" value={formData.type ?? ''} onChange={e => setFormData({ ...formData, type: e.target.value })} />
+                                                <datalist id="pure-opts">
+                                                    {formData.mainType === '活動金盆' ? availableEventTypes.map(t => <option key={t} value={t} />) : availablePureTypes.map(t => <option key={t} value={t} />)}
+                                                </datalist>
+                                            </div>
+                                            {formData.mainType !== '純點' && (
+                                                <div><label className="text-xs font-bold text-slate-500 block mb-1.5">點位名稱</label><input className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm placeholder:text-slate-300" placeholder="例如: 台北地下街任天堂旗艦店" value={formData.name ?? ''} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
+                                            )}
+                                        </>
+                                    )}
+                                    
+                                    <div className="bg-sky-50/50 p-4 rounded-xl space-y-4 border border-sky-100 shadow-sm relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-sky-400"></div>
+                                        <div className="flex justify-between items-center pb-2 border-b border-sky-200/50">
+                                            <h4 className="text-sm font-bold text-sky-800 flex items-center gap-1.5"><Icon path={ICONS.MapPin} /> 座標與地區</h4>
+                                            <button type="button" onClick={handleGetLocation} disabled={isFetchingGPS} className="bg-white hover:bg-sky-50 text-sky-600 border border-sky-200 text-[10px] font-bold px-2 py-1 rounded shadow-sm flex items-center gap-1 transition-colors disabled:opacity-50">
                                                 <Icon path={ICONS.Locate} /> 
-                                                {isFetchingGPS ? "定位中..." : "自動抓取定位"}
+                                                {isFetchingGPS ? "定位中..." : "自動抓取目前定位"}
                                             </button>
                                         </div>
-                                        <p className="text-[10px] text-sky-600/80 -mt-2">直接在下方輸入經緯度，系統也會自動幫你翻譯成國家。</p>
-                                        
                                         <div className="grid grid-cols-2 gap-4 mt-2">
                                             <div>
                                                 <label className="text-xs font-bold text-sky-600 block mb-1">緯度 (Lat)</label>
@@ -799,11 +1256,25 @@
                                             )}
                                         </div>
                                     </div>
+                                    
+                                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm focus-within:ring-2 focus-within:ring-emerald-500 transition-shadow">
+                                        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex items-center gap-2">
+                                            <Icon path={ICONS.FileText} className="text-slate-500 w-4 h-4" />
+                                            <span className="text-xs font-bold text-slate-600">備註 (選填)</span>
+                                        </div>
+                                        <textarea 
+                                            rows="2" 
+                                            className="w-full p-3 text-sm border-0 outline-none resize-none placeholder:text-slate-300"
+                                            placeholder="可以在這裡記錄該點位的注意事項或細節..."
+                                            value={formData.note ?? ''}
+                                            onChange={e => setFormData({ ...formData, note: e.target.value })}
+                                        ></textarea>
+                                    </div>
 
-                                    <div className="pt-2 flex gap-3">
-                                        <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl transition-colors">取消</button>
-                                        <button type="submit" disabled={isSubmitting} className="flex-[2] py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-black rounded-xl shadow-lg hover:shadow-xl transition-all active:scale-95 disabled:opacity-50">
-                                            {isSubmitting ? '資料傳送中...' : (formData._rowNumber ? '儲存修改' : '確認新增')}
+                                    <div className="pt-4 flex gap-3 border-t border-slate-100 mt-6">
+                                        <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 transition-colors">取消</button>
+                                        <button type="submit" disabled={isUploading} className="flex-[2] py-2.5 text-white rounded-lg flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-md transition-colors disabled:opacity-50 font-bold">
+                                            {isUploading ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> 儲存中...</> : <><Icon path={ICONS.Save} />確認儲存</>}
                                         </button>
                                     </div>
                                 </form>
