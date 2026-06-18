@@ -882,9 +882,16 @@
                                       (item.note || "").toLowerCase().includes(s);
                                       
                 if (mainTab === '明信片') {
+                    // ★ 核心修復：如果 filterType 是「已下架」，且此項目也是「已下架」，直接顯示，無視大類子類過濾
+                    if (filterType === "已下架" && item.type === "已下架") {
+                        return matchesSearch;
+                    }
+                    
+                    // 原本的過濾邏輯（如果是已下架，但不滿足上述條件，就會被隱藏）
                     const matchesCategory = filterCategory === "全部" || item.category === filterCategory;
                     const matchesSubCategory = filterSubCategory === "全部" || item.series === filterSubCategory;
                     const matchesType = filterType === "全部" || item.type === filterType;
+                    
                     return matchesCategory && matchesSubCategory && matchesType && matchesSearch;
                 } else if (mainTab === '純點' || mainTab === '活動金盆') {
                     const matchesType = filterType === "全部" || item.type === filterType;
@@ -893,7 +900,14 @@
             });
 
             const groupedPostcards = displayedItems.reduce((groups, item) => {
-                const key = mainTab === '明信片' ? (item.series || "未分類") : (item.type || "未分類");
+                // ★ 核心修復：如果點位屬性是「已下架」，強制集中歸類在一個特殊專區
+                let key;
+                if (item.type === '已下架') {
+                    key = "🪦 已下架 (遺照) 專區";
+                } else {
+                    key = mainTab === '明信片' ? (item.series || "未分類") : (item.type || "未分類");
+                }
+                
                 if (!groups[key]) groups[key] = { items: [], lastUpdated: null };
                 groups[key].items.push(item);
                 
@@ -995,7 +1009,7 @@
                                         <div>
                                             <label className="block text-xs font-bold text-slate-500 mb-1">點位屬性</label>
                                             <select 
-                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                className="w-full p-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm bg-white"
                                                 value={filterType}
                                                 onChange={e => setFilterType(e.target.value)}
                                             >
@@ -1003,7 +1017,8 @@
                                                 <option value="蘑菇">蘑菇</option>
                                                 <option value="花點">花點</option>
                                                 <option value="隱藏">隱藏</option>
-                                                <option value="已下架">已下架</option>
+                                                {/* ★ 確保已下架選項存在 */}
+                                                <option value="已下架">🪦 已下架 (遺照)</option>
                                             </select>
                                         </div>
                                         <div>
@@ -1050,9 +1065,9 @@
                                     ) : (
                                         Object.entries(groupedPostcards).map(([groupKey, groupData]) => (
                                             <section key={groupKey}>
-                                                <div className="flex items-center gap-3 mb-4 pl-3 border-l-4 border-emerald-500">
+                                                <div className={`flex items-center gap-3 mb-4 pl-3 border-l-4 ${groupKey.includes('已下架') ? 'border-slate-500' : 'border-emerald-500'}`}>
                                                     <div className="flex flex-col">
-                                                        <h2 className="text-xl font-bold text-slate-700 leading-tight">{groupKey}</h2>
+                                                        <h2 className={`text-xl font-bold leading-tight ${groupKey.includes('已下架') ? 'text-slate-600' : 'text-slate-700'}`}>{groupKey}</h2>
                                                         <span className="text-[10px] text-slate-400 font-bold tracking-wide">
                                                             上次更新: {formatDateTime(groupData.lastUpdated)}
                                                         </span>
@@ -1083,6 +1098,7 @@
                                                                     )}
                                                                     <div className={`mb-3 flex items-center justify-between shrink-0 ${!item.imageUrl ? '' : 'pt-1'}`}>
                                                                         <div className="flex items-center gap-2">
+                                                                            {/* ★ 加入已下架標籤樣式 */}
                                                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
                                                                                 item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
                                                                                 item.type === '花點' ? 'bg-pink-100 text-pink-700' : 
@@ -1098,7 +1114,7 @@
                                                             {mainTab === '活動金盆' && (<div className="mb-3 shrink-0"><span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase bg-amber-100 text-amber-700 mr-2">活動金盆</span><span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{item.type}</span></div>)}
                                                             
                                                             {mainTab !== '純點' && (
-                                                                <h3 className="text-base font-bold text-slate-800 mb-3 break-words leading-snug shrink-0">{item.name || '未命名項目'}</h3>
+                                                                <h3 className={`text-base font-bold mb-3 break-words leading-snug shrink-0 ${item.type === '已下架' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{item.name || '未命名項目'}</h3>
                                                             )}
 
                                                             <div className="space-y-3 text-sm text-slate-600 flex-1 flex flex-col justify-end mt-auto pt-2">
@@ -1131,7 +1147,7 @@
                                                                 </div>
                                                                 
                                                                 <div className="flex gap-2 mt-2">
-                                                                    <a href={`http://maps.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm">
+                                                                    <a href={`https://www.google.com/maps?q=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm">
                                                                         <Icon path={ICONS.ExternalLink} /> Google 地圖
                                                                     </a>
                                                                     <a href={`https://intel.ingress.com/?ll=${item.lat},${item.lng}&z=18`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 hover:bg-indigo-100 transition-colors text-indigo-700 rounded-lg text-xs font-medium border border-indigo-200 shadow-sm">
@@ -1246,13 +1262,12 @@
                                             </div>
                                         </div>
                                         
-                                        <div className="flex items-center gap-2 mt-2">
-                                            <Icon path={ICONS.MapPin} className="text-sky-500 w-4 h-4" />
-                                            <span className="text-xs font-bold text-sky-700">自動辨識國家：</span>
+                                        <div className="flex items-center gap-2 pt-1 bg-white p-2 rounded border border-slate-100 shadow-sm">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">系統辨識地區</span>
                                             {isDetectingLocation ? (
                                                 <span className="text-xs text-slate-500 animate-pulse">正在搜尋...</span>
                                             ) : (
-                                                <span className="text-sm font-black text-emerald-600 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">{locationCountry || "無"}</span>
+                                                <span className="text-sm font-black text-emerald-600 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">{locationText || "無"}</span>
                                             )}
                                         </div>
                                     </div>
