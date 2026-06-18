@@ -8,15 +8,6 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <script>
-        Babel.registerPreset('react-classic', {
-            presets: [
-                [Babel.availablePresets.react, { "runtime": "classic" }]
-            ]
-        });
-    </script>
-
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -28,6 +19,13 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
+    <script>
+        Babel.registerPreset('react-classic', {
+            presets: [
+                [Babel.availablePresets.react, { "runtime": "classic" }]
+            ]
+        });
+    </script>
 </head>
 <body class="bg-slate-50">
     <div id="root"></div>
@@ -1004,6 +1002,8 @@
                                                 <option value="蘑菇">蘑菇</option>
                                                 <option value="花點">花點</option>
                                                 <option value="隱藏">隱藏</option>
+                                                {/* ★ 方案二實作：加入已下架過濾 */}
+                                                <option value="已下架">已下架</option>
                                             </select>
                                         </div>
                                         <div>
@@ -1077,15 +1077,18 @@
                                                             {mainTab === '明信片' && (
                                                                 <>
                                                                     {item.imageUrl && (
-                                                                        <div className="mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0">
+                                                                        <div className={`mb-4 -mx-5 -mt-5 h-40 bg-slate-100 relative rounded-t-xl p-2 border-b border-slate-100 shrink-0 ${item.type === '已下架' ? 'grayscale opacity-75' : ''}`}>
                                                                             <img src={item.imageUrl} alt={item.name} className="w-full h-full object-contain" />
                                                                         </div>
                                                                     )}
                                                                     <div className={`mb-3 flex items-center justify-between shrink-0 ${!item.imageUrl ? '' : 'pt-1'}`}>
                                                                         <div className="flex items-center gap-2">
+                                                                            {/* ★ 方案二實作：加入已下架標籤樣式 */}
                                                                             <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
                                                                                 item.type === '蘑菇' ? 'bg-purple-100 text-purple-700' : 
-                                                                                item.type === '花點' ? 'bg-pink-100 text-pink-700' : 'bg-indigo-100 text-indigo-700'
+                                                                                item.type === '花點' ? 'bg-pink-100 text-pink-700' : 
+                                                                                item.type === '已下架' ? 'bg-slate-700 text-slate-100' :
+                                                                                'bg-indigo-100 text-indigo-700'
                                                                             }`}>{item.type}</span>
                                                                             <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{item.category}</span>
                                                                         </div>
@@ -1128,7 +1131,15 @@
                                                                     )}
                                                                 </div>
                                                                 
-                                                                <a href={`https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center gap-2 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm"><Icon path={ICONS.ExternalLink} />在 Google 地圖中查看</a>
+                                                                {/* ★ 方案一實作：修改原本只有 Google 地圖的按鈕 */}
+                                                                <div className="flex gap-2 mt-2">
+                                                                    <a href={`https://www.google.com/maps/search/?api=1&query=${item.lat},${item.lng}`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 hover:bg-blue-100 transition-colors text-blue-600 rounded-lg text-xs font-medium border border-blue-100 shadow-sm">
+                                                                        <Icon path={ICONS.ExternalLink} /> Google 地圖
+                                                                    </a>
+                                                                    <a href={`https://intel.ingress.com/?ll=${item.lat},${item.lng}&z=18`} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-indigo-50 hover:bg-indigo-100 transition-colors text-indigo-700 rounded-lg text-xs font-medium border border-indigo-200 shadow-sm">
+                                                                        <Icon path={ICONS.Locate} /> 查 Intel Map
+                                                                    </a>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -1195,6 +1206,8 @@
                                                         <option value="蘑菇">🍄 蘑菇</option>
                                                         <option value="花點">🌸 花點</option>
                                                         <option value="隱藏">❓ 隱藏點</option>
+                                                        {/* ★ 方案二實作：加入選項 */}
+                                                        <option value="已下架">🪦 已下架 (遺照)</option>
                                                     </select>
                                                 </div>
                                             </div>
@@ -1225,16 +1238,24 @@
                                                 {isFetchingGPS ? "定位中..." : "自動抓取目前定位"}
                                             </button>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">緯度 (Lat)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lat ?? ''} onChange={e => setFormData({ ...formData, lat: e.target.value })} /></div>
-                                            <div><label className="text-[10px] font-bold text-sky-600 block mb-1 uppercase tracking-wider">經度 (Lng)</label><input onPaste={handleCoordinatePaste} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono focus:ring-2 focus:ring-sky-500 outline-none shadow-sm placeholder:text-slate-300 transition-shadow" placeholder="可貼上完整座標" value={formData.lng ?? ''} onChange={e => setFormData({ ...formData, lng: e.target.value })} /></div>
+                                        <div className="grid grid-cols-2 gap-4 mt-2">
+                                            <div>
+                                                <label className="text-xs font-bold text-sky-600 block mb-1">緯度 (Lat)</label>
+                                                <input onPaste={handleCoordinatePaste} type="text" placeholder="例如: 25.189888" className="w-full border-0 shadow-sm rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-500 placeholder:text-slate-300" value={formData.lat} onChange={e => setFormData({ ...formData, lat: e.target.value })} />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-sky-600 block mb-1">經度 (Lng)</label>
+                                                <input onPaste={handleCoordinatePaste} type="text" placeholder="例如: 121.488269" className="w-full border-0 shadow-sm rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-sky-500 placeholder:text-slate-300" value={formData.lng} onChange={e => setFormData({ ...formData, lng: e.target.value })} />
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-2 pt-1 bg-white p-2 rounded border border-slate-100 shadow-sm">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">系統辨識地區</span>
+                                        
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <Icon path={ICONS.MapPin} className="text-sky-500 w-4 h-4" />
+                                            <span className="text-xs font-bold text-sky-700">自動辨識國家：</span>
                                             {isDetectingLocation ? (
-                                                <span className="text-xs text-sky-500 font-medium animate-pulse flex items-center gap-1"><div className="w-1.5 h-1.5 bg-sky-500 rounded-full animate-ping"></div> 正在轉換座標...</span>
+                                                <span className="text-xs text-slate-500 animate-pulse">正在搜尋...</span>
                                             ) : (
-                                                <span className={`text-sm font-black ${locationText ? 'text-emerald-600' : 'text-slate-300 italic'}`}>{locationText || "無資料"}</span>
+                                                <span className="text-sm font-black text-emerald-600 bg-white px-2 py-0.5 rounded shadow-sm border border-slate-100">{locationCountry || "無"}</span>
                                             )}
                                         </div>
                                     </div>
